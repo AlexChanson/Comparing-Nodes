@@ -1,12 +1,30 @@
 from datasets import load_iris
+from utility import *
+
 import numpy as np
+
+
+def eval_leader_obj(mask, dataset, membership):
+    k = max(membership)
+    X = dataset[:, mask]
+
+    s = 0
+
+    for c in range(k):
+        indices = np.argwhere(membership == c) # get indices for cluster
+        for i in indices:
+            for j in indices:
+                if i > j:
+                    s += np.sum(np.abs(X[i] - X[j] ))
+
+    return s
 
 
 def solve_follower(attribution_mask, dataset, k, method="kmeans", max_iters=100):
     X = dataset[:, attribution_mask]  # mask attributes used for comparison or discarded
     n_samples, _ = X.shape
 
-    cluster_partition = None
+    membership = None
 
     #idiot proofing
     if k <= 0:
@@ -43,20 +61,31 @@ def solve_follower(attribution_mask, dataset, k, method="kmeans", max_iters=100)
             # --- Convergence check -------------------------------------------
             shift = np.linalg.norm(new_centroids - centroids)
             if shift <= 10e-4:
+                membership = labels
                 break
             centroids = new_centroids
         else:
             # Reached max_iters without convergence – warn the user.
+            membership = labels
             print("Warning: k-means heuristic did not converge")
-        return labels
+        return membership
 
     else:
         raise NotImplementedError
+
+
 
 if __name__ == '__main__':
     features, data = load_iris()
 
     k = 3
-    mask = [0,0,1,1]
+    mask = np.asarray([False,False,True,True])
+    mask2 = [True,True,False,False]
 
-    print(solve_follower(mask, data, k))
+    membership = solve_follower(mask, data, k)
+    print(membership)
+    lobj = eval_leader_obj(mask2, data, membership)
+    print(lobj)
+
+    print(derive_comparison_mask(np.asarray([0,1,-1,1])))
+    print(derive_clustering_mask(np.asarray([0,1,-1,1])))
