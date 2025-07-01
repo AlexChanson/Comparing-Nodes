@@ -9,7 +9,8 @@ def pairwise_from_membership(membership):
                 pairwise[i, j] = 1
 
 def derive_clustering_mask(mask):
-    return mask == -1
+    return np.asarray(mask) == -1
 
 def derive_comparison_mask(mask):
-    return mask == 1
+    return np.asarray(mask) == 1
+

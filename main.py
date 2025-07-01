@@ -1,27 +1,14 @@
 from datasets import load_iris
 from utility import *
+from b_and_b import *
 
 import numpy as np
+from PrettyPrint import PrettyPrintTree
 
 
-def eval_leader_obj(mask, dataset, membership):
-    k = max(membership)
-    X = dataset[:, mask]
-
-    s = 0
-
-    for c in range(k):
-        indices = np.argwhere(membership == c) # get indices for cluster
-        for i in indices:
-            for j in indices:
-                if i > j:
-                    s += np.sum(np.abs(X[i] - X[j] ))
-
-    return s
-
-
-def solve_follower(attribution_mask, dataset, k, method="kmeans", max_iters=100):
-    X = dataset[:, attribution_mask]  # mask attributes used for comparison or discarded
+def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100):
+    X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
+    X_comp = dataset[:, derive_comparison_mask(p_sol)]
     n_samples, _ = X.shape
 
     membership = None
@@ -51,9 +38,9 @@ def solve_follower(attribution_mask, dataset, k, method="kmeans", max_iters=100)
             # --- Update step --------------------------------------------------
             new_centroids = np.empty_like(centroids)
             for j in range(k):
-                mask = labels == j
-                if np.any(mask):
-                    new_centroids[j] = X[mask].mean(axis=0)
+                cluster_mask = labels == j
+                if np.any(cluster_mask):
+                    new_centroids[j] = X[cluster_mask].mean(axis=0)
                 else:
                     # Handle empty cluster by re‑initializing to a random point.
                     new_centroids[j] = X[rng.integers(n_samples)]
@@ -73,19 +60,39 @@ def solve_follower(attribution_mask, dataset, k, method="kmeans", max_iters=100)
     else:
         raise NotImplementedError
 
+def max_from_tree(node):
+    if node.is_leaf():
+        return eval_obj(node, data, node.membership), node.sol
+    else:
+        res = [max_from_tree(c) for c in node.children]
+        res.append((eval_obj(node, data, node.membership), node.sol))
+        v, s = res[0]
+        for val, sol in res[1:]:
+            if val > v:
+                v = val
+                s = sol
+        return v, s
 
+def bnb(node):
+    if not node.is_leaf():
+        for idx, a in enumerate(node.mask()):
+            if a == 0:
+                l = node.branch(idx, "cluster")
+                l.membership = solve_node(l.mask(), data, k)
+                r = node.branch(idx, "comparison")
+                r.membership = solve_node(r.mask(), data, k)
+                bnb(l)
+                bnb(r)
 
+# Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
     features, data = load_iris()
 
     k = 3
-    mask = np.asarray([False,False,True,True])
-    mask2 = [True,True,False,False]
+    root = Node().build_root(features)
+    bnb(root)
 
-    membership = solve_follower(mask, data, k)
-    print(membership)
-    lobj = eval_leader_obj(mask2, data, membership)
-    print(lobj)
+    pt = PrettyPrintTree(lambda x: x.children, lambda x: print_obj(x, data))
+    pt(root)
 
-    print(derive_comparison_mask(np.asarray([0,1,-1,1])))
-    print(derive_clustering_mask(np.asarray([0,1,-1,1])))
+    print(max_from_tree(root))
