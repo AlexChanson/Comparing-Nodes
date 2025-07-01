@@ -1,3 +1,5 @@
+from setuptools.command.dist_info import dist_info
+
 from datasets import load_iris
 from utility import *
 from b_and_b import *
@@ -6,7 +8,7 @@ import numpy as np
 from PrettyPrint import PrettyPrintTree
 
 
-def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100):
+def solve_node(p_sol, dataset, k, method="fcm", max_iters=100, conv_criteria=10e-4, m = 2.0):
     X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
     X_comp = dataset[:, derive_comparison_mask(p_sol)]
     n_samples, _ = X.shape
@@ -47,7 +49,7 @@ def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100):
 
             # --- Convergence check -------------------------------------------
             shift = np.linalg.norm(new_centroids - centroids)
-            if shift <= 10e-4:
+            if shift <= conv_criteria:
                 membership = labels
                 break
             centroids = new_centroids
@@ -55,34 +57,76 @@ def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100):
             # Reached max_iters without convergence – warn the user.
             membership = labels
             print("Warning: k-means heuristic did not converge")
-        return membership
+    elif method in ("fcm", "fuzzy"): #TODO should fuzzy parameter be thr same in both spaces ?
+        rng = np.random.default_rng(0)
 
+        # Initialize membership matrix U with shape (k, n_samples)
+        U = rng.random((k, n_samples))
+        U /= np.sum(U, axis=0, keepdims=True)
+
+        # Initialize membership matrix in comparison space
+        U_comp = rng.random((k, n_samples))
+        U_comp /= np.sum(U, axis=0, keepdims=True)
+
+        conv_check = False
+        for iteration in range(max_iters):
+            U_old = U.copy()
+            U_comp_old = U_comp.copy()
+
+            # Compute cluster centers
+            U_m = U ** m
+            U_comp_m = U_comp ** m
+            centroids = (U_m @ X) / np.sum(U_m, axis=1, keepdims=True)
+            centroids_comp = (U_comp_m @ X_comp) / np.sum(U_comp_m, axis=1, keepdims=True)
+
+            # Compute squared distances (k, n_samples)
+            dist_2 = np.sum((centroids[:, None, :] - X[None, :, :]) ** 2, axis=2)
+            dist_2 = np.fmax(dist_2, 1e-12)  # avoid division by zero
+
+            dist_comp_2 = np.sum((centroids_comp[:, None, :] - X_comp[None, :, :]) ** 2, axis=2)
+            dist_comp_2 = np.fmax(dist_comp_2, 1e-12)  # avoid division by zero
+
+            # Update U
+            exponent = 1.0 / (m - 1)
+            for j in range(k):
+                ratio = dist_2[j:j + 1, :] / dist_2
+                U[j, :] = 1.0 / np.sum(ratio ** exponent, axis=0)
+
+                ratio_comp = dist_comp_2[j:j + 1, :] / dist_comp_2
+                U_comp[j, :] = 1.0 / np.sum(ratio_comp ** exponent, axis=0)
+
+            # Convergence check
+            if np.max(np.abs(U - U_old)) <= conv_criteria and np.max(np.abs(U_comp - U_comp_old)) <= conv_criteria:
+                conv_check = True
+                break
+
+        if not conv_check:
+            print("Warning: convergence")
+
+        # Hard labeling by maximum membership
+        harmonic_mean = (2 * U_comp * U)/(U + U_comp)
+        membership = np.argmax(harmonic_mean, axis=0)
     else:
         raise NotImplementedError
 
-def max_from_tree(node):
-    if node.is_leaf():
-        return eval_obj(node, data, node.membership), node.sol
-    else:
-        res = [max_from_tree(c) for c in node.children]
-        res.append((eval_obj(node, data, node.membership), node.sol))
-        v, s = res[0]
-        for val, sol in res[1:]:
-            if val > v:
-                v = val
-                s = sol
-        return v, s
+    return membership
+
 
 def bnb(node):
     if not node.is_leaf():
         for idx, a in enumerate(node.mask()):
             if a == 0:
-                l = node.branch(idx, "cluster")
-                l.membership = solve_node(l.mask(), data, k)
-                r = node.branch(idx, "comparison")
-                r.membership = solve_node(r.mask(), data, k)
-                bnb(l)
-                bnb(r)
+                for child in [node.branch(idx, "cluster"), node.branch(idx, "comparison")]:
+                    if not child.is_feasible(): # skip unfeasible leaf
+                        child.membership = None
+                        child.obj = float("-inf")
+                        if not child.is_leaf():
+                            bnb(child)
+                    else:
+                        child.membership = solve_node(child.mask(), data, k)
+                        child.obj = eval_obj(child, data, child.membership)
+                        bnb(child)
+
 
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
@@ -92,7 +136,12 @@ if __name__ == '__main__':
     root = Node().build_root(features)
     bnb(root)
 
-    pt = PrettyPrintTree(lambda x: x.children, lambda x: print_obj(x, data))
+    pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + print_obj(x, data), orientation=PrettyPrintTree.Horizontal)
     pt(root)
 
     print(max_from_tree(root))
+
+    test = Node()
+    test.sol = [-1,-1,-1,-1]
+    print(test.is_feasible())
+    print(test.is_leaf())

@@ -9,6 +9,7 @@ class Node:
         self.children = []
         self.membership = None
         self.root = False
+        self.obj = float('nan')
 
     def build_root(self, indicators):
         if len(indicators) < 2:
@@ -76,8 +77,21 @@ def eval_obj(node, dataset, membership):
 
 def print_obj(node, data):
     if node.root:
-        return "obj: inf. (root)"
+        return "obj: infeasible (root)"
     elif not node.is_feasible():
-        return "obj: inf."
+        return "obj: infeasible"
     else:
-        return "obj: " + str(eval_obj(node, data, node.membership))
+        return "obj: " + str(round(eval_obj(node, data, node.membership),2))
+
+def max_from_tree(node):
+    if node.is_leaf():
+        return node.obj, node.sol
+    else:
+        res = [max_from_tree(c) for c in node.children]
+        res.append((node.obj, node.sol))
+        v, s = res[0]
+        for val, sol in res[1:]:
+            if val > v:
+                v = val
+                s = sol
+        return v, s
