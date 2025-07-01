@@ -182,6 +182,7 @@ def bi_obj_check(root):
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
     features, data = load_iris()
+    #TODO Min max normalisation (or robust scaling) of attributes to avoid messing the clustering metric and trivial solution
 
     k = 3
     mtd = "fcm"
