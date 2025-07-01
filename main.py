@@ -83,8 +83,7 @@ def solve_node(p_sol, dataset, k, method="fcm", max_iters=100, conv_criteria=10e
             dist_2 = np.sum((centroids[:, None, :] - X[None, :, :]) ** 2, axis=2)
             dist_2 = np.fmax(dist_2, 1e-12)  # avoid division by zero
 
-            dist_comp_2 = np.sum((centroids_comp[:, None, :] - X_comp[None, :, :]) ** 2, axis=2)
-            dist_comp_2 = np.fmax(dist_comp_2, 1e-12)  # avoid division by zero
+            dist_comp_2 = np.sum( -np.abs(centroids_comp[:, None, :] - X_comp[None, :, :]) , axis=2)
 
             # Update U
             exponent = 1.0 / (m - 1)
@@ -117,10 +116,10 @@ def bnb(node):
         for idx, a in enumerate(node.mask()):
             if a == 0:
                 for child in [node.branch(idx, "cluster"), node.branch(idx, "comparison")]:
-                    if not child.is_feasible(): # skip unfeasible leaf
+                    if not child.is_feasible():
                         child.membership = None
                         child.obj = float("-inf")
-                        if not child.is_leaf():
+                        if not child.is_leaf():# skip unfeasible leaf
                             bnb(child)
                     else:
                         child.membership = solve_node(child.mask(), data, k)

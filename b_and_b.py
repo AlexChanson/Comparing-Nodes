@@ -70,7 +70,7 @@ def eval_obj(node, dataset, membership):
         for i in indices:
             for j in indices:
                 if i > j:
-                    s += np.sum(np.abs(X[i] - X[j] ))
+                    s += (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
                     s -= (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
 
     return s
