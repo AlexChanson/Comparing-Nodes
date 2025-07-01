@@ -75,6 +75,26 @@ def eval_obj(node, dataset, membership):
 
     return s
 
+def eval_bi_obj(node, dataset, membership):
+    if membership is None:
+        return float("nan"), float("nan")
+    k = max(membership)
+    X_ = dataset[:, derive_clustering_mask(node.mask())]
+    X = dataset[:, derive_comparison_mask(node.mask())]
+
+    s1 = 0
+    s2 = 0
+
+    for c in range(k):
+        indices = np.argwhere(membership == c) # get indices for cluster
+        for i in indices:
+            for j in indices:
+                if i > j:
+                    s1 += (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
+                    s2 += (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+
+    return float(s1), float(s2)
+
 def print_obj(node, data):
     if node.root:
         return "obj: infeasible (root)"

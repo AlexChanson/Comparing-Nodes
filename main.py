@@ -8,7 +8,7 @@ import numpy as np
 from PrettyPrint import PrettyPrintTree
 
 
-def solve_node(p_sol, dataset, k, method="fcm", max_iters=100, conv_criteria=10e-4, m = 2.0):
+def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100, conv_criteria=10e-4, m = 2.5):
     X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
     X_comp = dataset[:, derive_comparison_mask(p_sol)]
     n_samples, _ = X.shape
@@ -104,14 +104,15 @@ def solve_node(p_sol, dataset, k, method="fcm", max_iters=100, conv_criteria=10e
 
         # Hard labeling by maximum membership
         harmonic_mean = (2 * U_comp * U)/(U + U_comp)
-        membership = np.argmax(harmonic_mean, axis=0)
+        arithmetic_mean = (U_comp + U)/2.0
+        membership = np.argmax(arithmetic_mean, axis=0)
     else:
         raise NotImplementedError
 
     return membership
 
 
-def bnb(node):
+def bnb(node, **params):
     if not node.is_leaf():
         for idx, a in enumerate(node.mask()):
             if a == 0:
@@ -120,27 +121,48 @@ def bnb(node):
                         child.membership = None
                         child.obj = float("-inf")
                         if not child.is_leaf():# skip unfeasible leaf
-                            bnb(child)
+                            bnb(child, **params)
                     else:
-                        child.membership = solve_node(child.mask(), data, k)
+                        child.membership = solve_node(child.mask(), data, k, **params)
                         child.obj = eval_obj(child, data, child.membership)
-                        bnb(child)
+                        bnb(child, **params)
 
+def bi_obj_check(root):
+    sols = []
+    x = [] #comparison obj
+    y = []
+    def internal(node):
+        obj1, obj2 = eval_bi_obj(node, data, node.membership)
+        if node.is_feasible():
+            sols.append(node.sol)
+            x.append(obj1)
+            y.append(obj2)
+        if node.is_leaf():
+            return 1
+        else:
+            return 1 + sum([internal(c) for c in node.children])
+    sol_count =internal(root)
+    return sols, x, y
 
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
     features, data = load_iris()
 
     k = 3
+    mtd = "fcm"
+
     root = Node().build_root(features)
-    bnb(root)
+    bnb(root, method=mtd)
 
     pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + print_obj(x, data), orientation=PrettyPrintTree.Horizontal)
     pt(root)
 
     print(max_from_tree(root))
 
-    test = Node()
-    test.sol = [-1,-1,-1,-1]
-    print(test.is_feasible())
-    print(test.is_leaf())
+    from matplotlib import pyplot as plt
+    sols, x, y = bi_obj_check(root)
+    plt.scatter(x, y)
+    plt.xlabel("Comparison score")
+    plt.ylabel("Clustering (variance, lower is better)")
+    plt.title(f"Heuristic={mtd}, k={k}")
+    plt.show()
