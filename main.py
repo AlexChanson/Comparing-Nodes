@@ -58,7 +58,7 @@ def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100, conv_criteria=
             membership = labels
             print("Warning: k-means heuristic did not converge")
     elif method in ("fcm", "fuzzy"): #TODO should fuzzy parameter be thr same in both spaces ?
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(42)
 
         # Initialize membership matrix U with shape (k, n_samples)
         U = rng.random((k, n_samples))
@@ -82,8 +82,7 @@ def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100, conv_criteria=
             # Compute squared distances (k, n_samples)
             dist_2 = np.sum((centroids[:, None, :] - X[None, :, :]) ** 2, axis=2)
             dist_2 = np.fmax(dist_2, 1e-12)  # avoid division by zero
-
-            dist_comp_2 = np.sum( -np.abs(centroids_comp[:, None, :] - X_comp[None, :, :]) , axis=2)
+            dist_comp_2 = np.sum( -np.abs(centroids_comp[:, None, :] - X_comp[None, :, :]), axis=2)
 
             # Update U
             exponent = 1.0 / (m - 1)
@@ -104,8 +103,44 @@ def solve_node(p_sol, dataset, k, method="kmeans", max_iters=100, conv_criteria=
 
         # Hard labeling by maximum membership
         harmonic_mean = (2 * U_comp * U)/(U + U_comp)
-        arithmetic_mean = (U_comp + U)/2.0
+        arithmetic_mean = (U_comp + U)/2.0 #TODO add sigmoid after mean ?
+        geometric_mean = np.sqrt(U_comp * U)
         membership = np.argmax(arithmetic_mean, axis=0)
+    elif "fcm-nicolas":
+        rng = np.random.default_rng(0)
+
+        # Initialize membership matrix U with shape (k, n_samples)
+        U = rng.random((k, n_samples))
+        U /= np.sum(U, axis=0, keepdims=True)
+
+        conv_check = False
+        for iteration in range(max_iters):
+            U_old = U.copy()
+
+            # Compute cluster centers
+            U_m = U ** m
+            centroids = (U_m @ X) / np.sum(U_m, axis=1, keepdims=True)
+
+            # Compute squared distances (k, n_samples)
+            dist_2 = np.sum((centroids[:, None, :] - X[None, :, :]) ** 2, axis=2)
+            dist_2 = np.fmax(dist_2, 1e-12)  # avoid division by zero
+
+            # Update U
+            exponent = 1.0 / (m - 1)
+            for j in range(k):
+                ratio = dist_2[j:j + 1, :] / dist_2
+                U[j, :] = 1.0 / np.sum(ratio ** exponent, axis=0)
+
+            # Convergence check
+            if np.max(np.abs(U - U_old)) <= conv_criteria:
+                conv_check = True
+                break
+
+        if not conv_check:
+            print("Warning: convergence")
+
+        # Hard labeling by maximum membership
+        membership = np.argmax(U, axis=0)
     else:
         raise NotImplementedError
 

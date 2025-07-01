@@ -18,7 +18,7 @@ class Node:
         self.root = True
         return self
 
-    def branch(self, indicator, assignment):
+    def branch(self, indicator:int, assignment):
         if self.sol[indicator] != 0:
             raise ValueError("Indicator already assigned")
         n = self.__copy()
@@ -52,7 +52,7 @@ class Node:
         for a in self.sol:
             if a == 1:
                 for b in self.sol:
-                    if b != -1:
+                    if b == -1:
                         return True
         return False
 
@@ -60,18 +60,22 @@ def eval_obj(node, dataset, membership):
     if membership is None:
         return float("nan")
     k = max(membership)
+
     X_ = dataset[:, derive_clustering_mask(node.mask())]
+    clus_ratio = np.sum(derive_clustering_mask(node.mask()))/len(node.sol)
+
     X = dataset[:, derive_comparison_mask(node.mask())]
+    comp_ratio = np.sum(derive_comparison_mask(node.mask())) / len(node.sol)
 
     s = 0
-
     for c in range(k):
         indices = np.argwhere(membership == c) # get indices for cluster
+        n=len(indices)
         for i in indices:
             for j in indices:
                 if i > j:
-                    s += (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                    s -= (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+                    s += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
+                    s -= (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
 
     return s
 
@@ -79,19 +83,23 @@ def eval_bi_obj(node, dataset, membership):
     if membership is None:
         return float("nan"), float("nan")
     k = max(membership)
+
     X_ = dataset[:, derive_clustering_mask(node.mask())]
+    clus_ratio = np.sum(derive_clustering_mask(node.mask()))/len(node.sol)
+
     X = dataset[:, derive_comparison_mask(node.mask())]
+    comp_ratio = np.sum(derive_comparison_mask(node.mask())) / len(node.sol)
 
     s1 = 0
     s2 = 0
-
     for c in range(k):
         indices = np.argwhere(membership == c) # get indices for cluster
+        n = len(indices)
         for i in indices:
             for j in indices:
                 if i > j:
-                    s1 += (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                    s2 += (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+                    s1 += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
+                    s2 += (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
 
     return float(s1), float(s2)
 
