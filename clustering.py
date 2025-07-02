@@ -63,6 +63,7 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
 
         dist_2 = ((centroids[:, None, :] - X[None, :, :]) ** 2).sum(axis=2)
         dist_2 = np.fmax(dist_2, 1e-12)  # avoid /0
+
         dist_comp_2 = -np.abs(centroids_comp[:, None, :] - X_comp[None, :, :]).sum(axis=2)
 
         for j in range(k):

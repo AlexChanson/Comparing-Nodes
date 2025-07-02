@@ -75,10 +75,10 @@ def eval_obj(node : Node, dataset:NDArray[np.float64], membership : list[int]):
     k = max(membership)
 
     X_ = dataset[:, node.derive_clustering_mask()]
-    clus_ratio = np.sum(node.derive_clustering_mask())/len(node.sol)
+    clus_ratio = np.sum(node.derive_clustering_mask())/len(node.sol) # clustering dims / total dims
 
     X = dataset[:, node.derive_comparison_mask()]
-    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol)
+    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol) # clustering dis / total dims
 
     s = 0
     for c in range(k):
@@ -97,11 +97,11 @@ def eval_bi_obj(node, dataset, membership):
         return float("nan"), float("nan")
     k = max(membership)
 
-    X_ = dataset[:, derive_clustering_mask(node.mask())]
-    clus_ratio = np.sum(derive_clustering_mask(node.mask()))/len(node.sol)
+    X_ = dataset[:, node.derive_clustering_mask()]
+    clus_ratio = np.sum(node.derive_clustering_mask()) / len(node.sol)  # clustering dims / total dims
 
-    X = dataset[:, derive_comparison_mask(node.mask())]
-    comp_ratio = np.sum(derive_comparison_mask(node.mask())) / len(node.sol)
+    X = dataset[:, node.derive_comparison_mask()]
+    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol)  # clustering dis / total dims
 
     s1 = 0
     s2 = 0
