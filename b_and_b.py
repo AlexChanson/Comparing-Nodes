@@ -1,15 +1,16 @@
 from copy import copy
 from utility import *
+from numba import jit, njit
+from numpy.typing import NDArray
 
 class Node:
     def __init__(self):
-        self.sol = None
-        self.depth = 0
-        self.parent = None
-        self.children = []
-        self.membership = None
-        self.root = False
-        self.obj = float('nan')
+        self.sol : list[int] = None
+        self.depth : int = 0
+        self.children : list[Node] = []
+        self.membership : list[int] = None
+        self.root : bool = False
+        self.obj : float = float('nan')
 
     def build_root(self, indicators):
         if len(indicators) < 2:
@@ -18,12 +19,11 @@ class Node:
         self.root = True
         return self
 
-    def branch(self, indicator:int, assignment):
+    def branch(self, indicator:int, assignment:str):
         if self.sol[indicator] != 0:
             raise ValueError("Indicator already assigned")
         n = self.__copy()
         n.depth += 1
-        n.parent = self
         self.children.append(n)
         if assignment.startswith("cl"):
             n.sol[indicator] = -1
@@ -42,13 +42,25 @@ class Node:
     def mask(self):
         return copy(self.sol)
 
+    def signature(self):
+        return "".join(map(str, self.sol))
+
+    def derive_clustering_mask(self):
+        return np.asarray(self.sol) == -1
+
+    def prune_child(self, child):
+        self.children.remove(child)
+
+    def derive_comparison_mask(self):
+        return np.asarray(self.sol) == 1
+
     def is_leaf(self):
         for a in self.sol:
             if a == 0:
                 return False
         return True
 
-    def is_feasible(self):
+    def is_feasible(self) -> bool:
         for a in self.sol:
             if a == 1:
                 for b in self.sol:
@@ -56,16 +68,17 @@ class Node:
                         return True
         return False
 
-def eval_obj(node, dataset, membership):
+
+def eval_obj(node : Node, dataset:NDArray[np.float64], membership : list[int]):
     if membership is None:
         return float("nan")
     k = max(membership)
 
-    X_ = dataset[:, derive_clustering_mask(node.mask())]
-    clus_ratio = np.sum(derive_clustering_mask(node.mask()))/len(node.sol)
+    X_ = dataset[:, node.derive_clustering_mask()]
+    clus_ratio = np.sum(node.derive_clustering_mask())/len(node.sol)
 
-    X = dataset[:, derive_comparison_mask(node.mask())]
-    comp_ratio = np.sum(derive_comparison_mask(node.mask())) / len(node.sol)
+    X = dataset[:, node.derive_comparison_mask()]
+    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol)
 
     s = 0
     for c in range(k):
@@ -110,6 +123,7 @@ def print_obj(node, data):
         return "obj: infeasible"
     else:
         return "obj: " + str(round(eval_obj(node, data, node.membership),2))
+
 
 def max_from_tree(node):
     if node.is_leaf():

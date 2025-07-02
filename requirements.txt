@@ -2,3 +2,4 @@ numpy
 PrettyPrintTree
 matplotlib
 scikit-learn
+numba
