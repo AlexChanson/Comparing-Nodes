@@ -1,6 +1,5 @@
 from copy import copy
 from utility import *
-from numba import jit, njit
 from numpy.typing import NDArray
 
 class Node:
@@ -68,72 +67,60 @@ class Node:
                         return True
         return False
 
-
-def eval_obj(node : Node, dataset:NDArray[np.float64], membership : list[int]):
-    if membership is None:
-        return float("nan")
-    k = max(membership)
-
-    X_ = dataset[:, node.derive_clustering_mask()]
-    clus_ratio = np.sum(node.derive_clustering_mask())/len(node.sol) # clustering dims / total dims
-
-    X = dataset[:, node.derive_comparison_mask()]
-    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol) # clustering dis / total dims
-
-    s = 0
-    for c in range(k):
-        indices = np.argwhere(membership == c) # get indices for cluster
-        n=len(indices)
-        for i in indices:
-            for j in indices:
-                if i > j:
-                    s += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                    s -= (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
-
-    return s
-
-def eval_bi_obj(node, dataset, membership):
-    if membership is None:
-        return float("nan"), float("nan")
-    k = max(membership)
-
-    X_ = dataset[:, node.derive_clustering_mask()]
-    clus_ratio = np.sum(node.derive_clustering_mask()) / len(node.sol)  # clustering dims / total dims
-
-    X = dataset[:, node.derive_comparison_mask()]
-    comp_ratio = np.sum(node.derive_comparison_mask()) / len(node.sol)  # clustering dis / total dims
-
-    s1 = 0
-    s2 = 0
-    for c in range(k):
-        indices = np.argwhere(membership == c) # get indices for cluster
-        n = len(indices)
-        for i in indices:
-            for j in indices:
-                if i > j:
-                    s1 += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                    s2 += (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
-
-    return float(s1), float(s2)
-
-def print_obj(node, data):
-    if node.root:
-        return "obj: infeasible (root)"
-    elif not node.is_feasible():
-        return "obj: infeasible"
-    else:
-        return "obj: " + str(round(eval_obj(node, data, node.membership),2))
+    def print_obj(self, data):
+        if self.root:
+            return "obj: infeasible (root)"
+        elif not self.is_feasible():
+            return "obj: infeasible"
+        else:
+            return "obj: " + str(round(self.eval_obj(data), 2))
 
 
-def max_from_tree(node):
-    if node.is_leaf():
-        return node.obj, node.sol
-    else:
-        res = [max_from_tree(c) for c in node.children]
-        res.append((node.obj, node.sol))
-        v, s = res[0]
-        for val, sol in res[1:]:
-            if val > v:
-                v = val
-                s = sol
-        return v, s
+    def eval_obj(self, dataset:NDArray[np.float64]):
+        if self.membership is None:
+            return float("nan")
+        k = max(self.membership)
+
+        X_ = dataset[:, self.derive_clustering_mask()]
+        clus_ratio = np.sum(self.derive_clustering_mask()) / len(self.sol) # clustering dims / total dims
+
+        X = dataset[:, self.derive_comparison_mask()]
+        comp_ratio = np.sum(self.derive_comparison_mask()) / len(self.sol) # clustering dis / total dims
+
+        s = 0
+        for c in range(k):
+            indices = np.argwhere(self.membership == c) # get indices for cluster
+            n=len(indices)
+            for i in indices:
+                for j in indices:
+                    if i > j:
+                        s += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
+                        s -= (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+
+        return s
+
+    def eval_bi_obj(self, dataset):
+        if self.membership is None:
+            return float("nan"), float("nan")
+        k = max(self.membership)
+
+        X_ = dataset[:, self.derive_clustering_mask()]
+        clus_ratio = np.sum(self.derive_clustering_mask()) / len(self.sol)  # clustering dims / total dims
+
+        X = dataset[:, self.derive_comparison_mask()]
+        comp_ratio = np.sum(self.derive_comparison_mask()) / len(self.sol)  # clustering dis / total dims
+
+        s1 = 0
+        s2 = 0
+        for c in range(k):
+            indices = np.argwhere(self.membership == c) # get indices for cluster
+            n = len(indices)
+            for i in indices:
+                for j in indices:
+                    if i > j:
+                        s1 += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
+                        s2 += (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+
+        return float(s1), float(s2)
+
+

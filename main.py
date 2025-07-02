@@ -78,7 +78,7 @@ def bnb(node : Node, node_map : dict[Node], **params):
                             node.prune_child(child)
                     else:
                         child.membership = solve_node(child.mask(), data, k, **params)
-                        child.obj = eval_obj(child, data, child.membership)
+                        child.obj = child.eval_obj(data)
                         node_map[child.signature()] = child #Save node in the hash map
                         bnb(child, node_map, **params)
 
@@ -87,7 +87,7 @@ def bi_obj_check(root):
     x = [] #comparison obj
     y = []
     def internal(node):
-        obj1, obj2 = eval_bi_obj(node, data, node.membership)
+        obj1, obj2 = node.eval_bi_obj( data,)
         if node.is_feasible():
             sols.append(node.sol)
             x.append(obj1)
@@ -99,6 +99,19 @@ def bi_obj_check(root):
     sol_count =internal(root)
     return sols, x, y
 
+def max_from_tree(node):
+    if node.is_leaf():
+        return node.obj, node.sol
+    else:
+        res = [max_from_tree(c) for c in node.children]
+        res.append((node.obj, node.sol))
+        v, s = res[0]
+        for val, sol in res[1:]:
+            if val > v:
+                v = val
+                s = sol
+        return v, s
+
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
     features, data = load_iris()
@@ -106,12 +119,13 @@ if __name__ == '__main__':
 
     k = 3
     mtd = "fcm"
-    DISPLAY = True
+    DISPLAY = False
 
     root = Node().build_root(features)
     bnb(root, dict(), method=mtd)
 
-    pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + print_obj(x, data), orientation=PrettyPrintTree.Horizontal)
+    pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data),
+                         orientation=PrettyPrintTree.Horizontal)
     pt(root)
 
     print(max_from_tree(root))
