@@ -1,17 +1,16 @@
-from setuptools.command.dist_info import dist_info
-
 from datasets import load_iris
-from utility import *
 from b_and_b import *
 from clustering import *
+from utility import *
 
 from copy import copy
 import numpy as np
 from numpy.typing import NDArray
-
+from numba import njit
 from PrettyPrint import PrettyPrintTree
 
 
+@njit()
 def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method="kmeans", max_iters=100, conv_criteria=10e-4, m = 2.5):
     X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
     X_comp = dataset[:, derive_comparison_mask(p_sol)]
@@ -30,8 +29,6 @@ def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method
         membership = kmeans(X, conv_criteria, k, max_iters, membership, n_samples)
     elif method in ("fcm", "fuzzy"): #TODO should fuzzy parameter be thr same in both spaces ?
         membership = fcm_alex(X, X_comp, conv_criteria, k, m, max_iters, n_samples)
-    elif "fcm-nicolas":
-        membership = fcm_nico(X, conv_criteria, k, m, max_iters, membership, n_samples)
     else:
         raise NotImplementedError
 
@@ -82,35 +79,6 @@ def bnb(node : Node, node_map : dict[Node], **params):
                         node_map[child.signature()] = child #Save node in the hash map
                         bnb(child, node_map, **params)
 
-def bi_obj_check(root):
-    sols = []
-    x = [] #comparison obj
-    y = []
-    def internal(node):
-        obj1, obj2 = node.eval_bi_obj( data,)
-        if node.is_feasible():
-            sols.append(node.sol)
-            x.append(obj1)
-            y.append(obj2)
-        if node.is_leaf():
-            return 1
-        else:
-            return 1 + sum([internal(c) for c in node.children])
-    sol_count =internal(root)
-    return sols, x, y
-
-def max_from_tree(node):
-    if node.is_leaf():
-        return node.obj, node.sol
-    else:
-        res = [max_from_tree(c) for c in node.children]
-        res.append((node.obj, node.sol))
-        v, s = res[0]
-        for val, sol in res[1:]:
-            if val > v:
-                v = val
-                s = sol
-        return v, s
 
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
@@ -122,7 +90,9 @@ if __name__ == '__main__':
     DISPLAY = False
 
     root = Node().build_root(features)
-    bnb(root, dict(), method=mtd)
+
+    nodes : dict[Node] = {}
+    bnb(root, nodes, method=mtd)
 
     pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data),
                          orientation=PrettyPrintTree.Horizontal)
@@ -132,7 +102,7 @@ if __name__ == '__main__':
 
     if DISPLAY:
         from matplotlib import pyplot as plt
-        sols, x, y = bi_obj_check(root)
+        sols, x, y = bi_obj_check(root, data)
         plt.scatter(x, y)
         plt.xlabel("Comparison score")
         plt.ylabel("Clustering (variance, lower is better)")

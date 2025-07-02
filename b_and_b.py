@@ -1,6 +1,7 @@
 from copy import copy
 from utility import *
 from numpy.typing import NDArray
+from numba import jit, njit
 
 class Node:
     def __init__(self):
@@ -81,46 +82,49 @@ class Node:
             return float("nan")
         k = max(self.membership)
 
-        X_ = dataset[:, self.derive_clustering_mask()]
-        clus_ratio = np.sum(self.derive_clustering_mask()) / len(self.sol) # clustering dims / total dims
-
-        X = dataset[:, self.derive_comparison_mask()]
-        comp_ratio = np.sum(self.derive_comparison_mask()) / len(self.sol) # clustering dis / total dims
-
-        s = 0
-        for c in range(k):
-            indices = np.argwhere(self.membership == c) # get indices for cluster
-            n=len(indices)
-            for i in indices:
-                for j in indices:
-                    if i > j:
-                        s += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                        s -= (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
-
-        return s
+        return  _si_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
 
     def eval_bi_obj(self, dataset):
         if self.membership is None:
             return float("nan"), float("nan")
         k = max(self.membership)
 
-        X_ = dataset[:, self.derive_clustering_mask()]
-        clus_ratio = np.sum(self.derive_clustering_mask()) / len(self.sol)  # clustering dims / total dims
-
-        X = dataset[:, self.derive_comparison_mask()]
-        comp_ratio = np.sum(self.derive_comparison_mask()) / len(self.sol)  # clustering dis / total dims
-
-        s1 = 0
-        s2 = 0
-        for c in range(k):
-            indices = np.argwhere(self.membership == c) # get indices for cluster
-            n = len(indices)
-            for i in indices:
-                for j in indices:
-                    if i > j:
-                        s1 += ( 2/(n*(n-1)) ) * comp_ratio * (1.0/len(indices)) * np.sum(np.abs(X[i] - X[j] ))
-                        s2 += (1 - clus_ratio) * (1.0/len(indices)) * np.sum((X_[i] - X_[j])**2)
+        s1, s2 = _bi_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
 
         return float(s1), float(s2)
 
+@njit
+def _bi_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
+    X_ = dataset[:, cl_mask]
+    clus_ratio = np.sum(cl_mask) / sol_len  # clustering dims / total dims
+    X = dataset[:, co_mask]
+    comp_ratio = np.sum(co_mask) / sol_len  # clustering dis / total dims
+    s1 = 0
+    s2 = 0
+    for c in range(k):
+        indices = np.argwhere(membership == c)  # get indices for cluster
+        n = len(indices)
+        for i in indices:
+            for j in indices:
+                if i > j:
+                    s1 += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
+                    s2 += (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+    return s1, s2
 
+@njit
+def _si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
+    X_ = dataset[:, cl_mask]
+    clus_ratio = np.sum(cl_mask) / sol_len  # clustering dims / total dims
+    X = dataset[:, co_mask]
+    comp_ratio = np.sum(co_mask) / sol_len  # clustering dis / total dims
+    s = 0
+    for c in range(k):
+        indices = np.argwhere(membership == c)  # get indices for cluster
+        n = len(indices)
+        for i in indices:
+            for j in indices:
+                if i > j:
+                    s += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
+                    s -= (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+
+    return s
