@@ -26,9 +26,11 @@ def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method
         raise ValueError("k cannot exceed the number of samples")
 
     if method == "kmeans":
-        membership = kmeans(X, conv_criteria, k, max_iters, membership, n_samples)
-    elif method in ("fcm", "fuzzy"): #TODO should fuzzy parameter be thr same in both spaces ?
-        membership = fcm_alex(X, X_comp, conv_criteria, k, m, max_iters, n_samples)
+        membership = kmeans(X, conv_criteria, k, max_iters)
+    elif method == "fcm": #TODO should fuzzy parameter be thr same in both spaces ?
+        membership = fcm_alex(X, X_comp, conv_criteria, k, m, max_iters)
+    elif method == "fcm2":
+        membership = fcm_nico(X, X_comp, conv_criteria, k, m, max_iters)
     else:
         raise NotImplementedError
 

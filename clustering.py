@@ -21,7 +21,7 @@ def _random_unique_indices(n_samples: np.int64, k: np.int64):
     return out
 
 @njit()
-def kmeans(X, conv_criteria, k, max_iters, membership, n_samples):
+def kmeans(X, conv_criteria, k, max_iters):
     # --- Initialisation TODO kmeans++
     n_samples, n_features = X.shape
 
@@ -79,13 +79,13 @@ def kmeans(X, conv_criteria, k, max_iters, membership, n_samples):
         shift = np.sqrt(shift)
 
         if shift <= conv_criteria:
-            return membership
+            return labels
 
         prev_centroids[:, :] = centroids[:, :]
-    return membership
+    return labels
 
 @jit(nopython=True)
-def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int, n_samples:int):
+def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
     n_samples = X.shape[0]
 
     U = np.random.rand(k, n_samples)
@@ -127,39 +127,36 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         print("Warning: convergence")
     return arithmetic_mean.argmax(axis=0)
 
+@njit()
+def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
+    n_samples = X.shape[0]
 
-def fcm_nico(X, conv_criteria, k, m, max_iters, membership, n_samples):
-    rng = np.random.default_rng(0)
-    # Initialize membership matrix U with shape (k, n_samples)
-    U = rng.random((k, n_samples))
-    U /= np.sum(U, axis=0, keepdims=True)
+    U = np.random.rand(k, n_samples)
+    U /= U.sum(axis=0)
+
+    exponent = 1.0 / (m - 1.0)
+
     conv_check = False
-    for iteration in range(max_iters):
+    for _ in range(max_iters):
         U_old = U.copy()
-
-        # Compute cluster centers
         U_m = U ** m
-        centroids = (U_m @ X) / np.sum(U_m, axis=1, keepdims=True)
 
-        # Compute squared distances (k, n_samples)
-        dist_2 = np.sum((centroids[:, None, :] - X[None, :, :]) ** 2, axis=2)
-        dist_2 = np.fmax(dist_2, 1e-12)  # avoid division by zero
+        centroids = (U_m @ X) / U_m.sum(axis=1)[:, None]
 
-        # Update U
-        exponent = 1.0 / (m - 1)
+        dist_2 = ((centroids[:, None, :] - X[None, :, :]) ** 2).sum(axis=2)
+        dist_2 = np.fmax(dist_2, 1e-12)  # avoid /0
+
         for j in range(k):
-            ratio = dist_2[j:j + 1, :] / dist_2
-            U[j, :] = 1.0 / np.sum(ratio ** exponent, axis=0)
+            ratio = dist_2[j] / dist_2
+            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
 
-        # Convergence check
-        if np.max(np.abs(U - U_old)) <= conv_criteria:
+        if np.abs(U - U_old).max() <= conv_criteria:
             conv_check = True
             break
+
     if not conv_check:
         print("Warning: convergence")
-    # Hard labeling by maximum membership
-    membership = np.argmax(U, axis=0)
-    return membership
+    return np.argmax(U, axis=0)
 
 
 
