@@ -137,42 +137,60 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         print("Warning: convergence")
     return arithmetic_mean.argmax(axis=0)
 
-@njit()
+#@njit()
 def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
     n_samples = X.shape[0]
 
-    U = np.random.rand(k, n_samples)
-    U /= U.sum(axis=0)
+    centroids = np.empty((k, ), dtype=np.int64)
+    init_idx = _random_unique_indices(n_samples, k)
+    for j in range(k):
+        centroids[j] = init_idx[j]
+
+    U = np.zeros((k, n_samples), np.float64)
 
     exponent = 1.0 / (m - 1.0)
 
     conv_check = False
     for _ in range(max_iters):
-        U_old = U.copy()
-        U_m = U ** m
 
-        centroids = (U_m @ X) / U_m.sum(axis=1)[:, None]
-        centroids_comp = (U_m @ X_comp) / U_m.sum(axis=1)[:, None]
-
-        dist_2 = np.zeros(k, n_samples)
-        for j in range(k):
+        dists = np.zeros((k, n_samples), np.float64)
+        for j in range(k):# for each cluster
             for i in range(n_samples):
                 a = 0.0
                 for dim in range(X.shape[1]):
-                    a += centroids[j, dim] - X[i, dim] # good when small
+                    a += (X[centroids[j], dim] - X[i, dim])**2 # good when small
+                a = a/X.shape[1]
                 b = 0.0
                 for dim in range(X_comp.shape[1]):
-                    b += np.abs(centroids[j, dim] - X_comp[i, dim]) # good when big
-                dist = (a - b) ** 2
-                dist_2[j, i] = dist
+                    b += np.abs(X_comp[centroids[j], dim] - X_comp[i, dim]) # good when big
+                b = b/X_comp.shape[1]
+                dists[j, i] = a - b #TODO add balance ?
 
+        U_old = U.copy()
 
+        to_corr = []
         for j in range(k):
             for i in range(n_samples):
+                if i == centroids[j]:
+                    U[j, i] = 1.0
+                    for clus in range(k):
+                        if clus != j:
+                            to_corr.append((clus, j))
+                    continue
                 s1 = 0.0
                 for l in range(k):
-                    s1 += (dist_2[j, i] / dist_2[l, i]) ** exponent
+                    s1 += (dists[j, i] / dists[l, i]) ** exponent
                 U[j, i] = 1.0 / s1
+        for x,y in to_corr:
+            U[x,y] = 0.0
+
+        for j in range(k):
+            var = 0
+            idx = np.argsort(U[j], axis=0)[var]
+            while idx in centroids[:j]:
+                var += 1
+                idx = np.argsort(U[j], axis=0)[var]
+            centroids[j] = idx
 
         if np.abs(U - U_old).max() <= conv_criteria:
             conv_check = True

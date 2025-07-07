@@ -10,7 +10,7 @@ from numba import njit
 from PrettyPrint import PrettyPrintTree
 
 
-@njit()
+#@njit()
 def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method="kmeans", max_iters=100, conv_criteria=10e-4, m = 2.5):
     X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
     X_comp = dataset[:, derive_comparison_mask(p_sol)]
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     #TODO Min max normalisation (or robust scaling) of attributes to avoid messing the clustering metric and trivial solution
 
     k = 3
-    mtd = "fcm"
+    mtd = "fcm2"
     DISPLAY = False
 
     root = Node().build_root(features)
