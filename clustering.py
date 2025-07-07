@@ -105,7 +105,7 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         U_comp_m = U_comp ** m
 
         centroids = (U_m @ X) / U_m.sum(axis=1)[:, None]
-        centroids_comp = (U_comp_m @ X_comp) / U_comp_m.sum(axis=1)[:, None]
+        centroids_comp = (U_comp_m @ X_comp) / U_comp_m.sum(axis=1)[:, None] # TODO median instead
 
         dist_2 = ((centroids[:, None, :] - X[None, :, :]) ** 2).sum(axis=2)
         dist_2 = np.fmax(dist_2, 1e-12)  # avoid /0
@@ -113,10 +113,20 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         dist_comp_2 = -np.abs(centroids_comp[:, None, :] - X_comp[None, :, :]).sum(axis=2)
 
         for j in range(k):
-            ratio = dist_2[j] / dist_2
-            ratio_comp = dist_comp_2[j] / dist_comp_2
-            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
-            U_comp[j] = 1.0 / np.sum(ratio_comp ** exponent, axis=0)
+            for i in range(n_samples):
+                s1 = 0.0
+                s2 = 0.0
+                for l in range(k):
+                    s1 += (dist_2[j, i] / dist_2[l, i]) ** exponent
+                    s2 += (dist_comp_2[j, i] / dist_comp_2[l, i]) ** exponent
+                U[j, i] = 1.0 / s1
+                U_comp[j, i] = 1.0 / s2
+
+#        for j in range(k):
+#            ratio = dist_2[j] / dist_2
+#            ratio_comp = dist_comp_2[j] / dist_comp_2
+#            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
+#            U_comp[j] = 1.0 / np.sum(ratio_comp ** exponent, axis=0)
 
         if np.abs(U - U_old).max() <= conv_criteria and np.abs(U_comp - U_comp_old).max() <= conv_criteria:
             conv_check = True
@@ -142,13 +152,27 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         U_m = U ** m
 
         centroids = (U_m @ X) / U_m.sum(axis=1)[:, None]
+        centroids_comp = (U_m @ X_comp) / U_m.sum(axis=1)[:, None]
 
-        dist_2 = ((centroids[:, None, :] - X[None, :, :]) ** 2).sum(axis=2)
-        dist_2 = np.fmax(dist_2, 1e-12)  # avoid /0
+        dist_2 = np.zeros(k, n_samples)
+        for j in range(k):
+            for i in range(n_samples):
+                a = 0.0
+                for dim in range(X.shape[1]):
+                    a += centroids[j, dim] - X[i, dim] # good when small
+                b = 0.0
+                for dim in range(X_comp.shape[1]):
+                    b += np.abs(centroids[j, dim] - X_comp[i, dim]) # good when big
+                dist = (a - b) ** 2
+                dist_2[j, i] = dist
+
 
         for j in range(k):
-            ratio = dist_2[j] / dist_2
-            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
+            for i in range(n_samples):
+                s1 = 0.0
+                for l in range(k):
+                    s1 += (dist_2[j, i] / dist_2[l, i]) ** exponent
+                U[j, i] = 1.0 / s1
 
         if np.abs(U - U_old).max() <= conv_criteria:
             conv_check = True
