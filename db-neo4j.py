@@ -108,26 +108,62 @@ class Neo4jConnector:
                 "    CASE WHEN count_y < count_r THEN label_y ELSE label_x END AS target,"
                 "    count_x < count_r AND count_y < count_r AS is_many_to_many")
         carinalities=self.execute_query(query)
-        return carinalities
+        dictRel={}
+        dictRel['manyToMany']=[]
+        dictRel['oneToMany']=[]
+        for c in carinalities:
+            if c['is_many_to_many']==True:
+                dictRel['manyToMany'].append(c['name'])
+            else:
+                dictRel['oneToMany'].append(c['name'])
+        return dictRel
 
     def createDatasetForLabel(self,label):
         tabProp=self.getValidProperties(label)
-        str=''
+        str='elementId(n),'
         for p in tabProp:
             str=str+'n.'+p+','
         str=str[:-1]
         values = self.execute_query("MATCH (n:" + label + ") RETURN "+str)
         # transform into features + matrix
         # 1. Extract feature names from the keys of the first dict, stripping the "n." prefix
-        features = [key.split('.', 1)[1] for key in values[0].keys()]
+#        features = [key.split('.', 1)[1] for key in values[0].keys()]
+        features = [key for key in values[0].keys()]
 
         # 2. Build the matrix of values, row by row
         matrix = [
-            [row.get(f"n.{feat}") for feat in features]
+            [row.get(f"{feat}") for feat in features]
             for row in values
         ]
-        return features, np.asarray(matrix)
+        features2=[]
+        for f in features:
+            if f.startswith("n."):
+                f2=f.replace("n.","")
+            if f.startswith("elementId"):
+                f2="elementId"
+            features2.append(f2)
+        return features2, np.asarray(matrix)
 
+    def getDegreeOfRelationForLabel(self,label):
+        #returns degree of type for nodeId
+        #tabProp=self.getValidProperties(label)
+        str=''
+        types = self.execute_query("call db.relationshipTypes()")
+        rel=[ r['relationshipType'] for r in types ]
+        print(rel)
+        dictRel={}
+        for r in rel:
+            degrees = self.execute_query("MATCH (n:"+label+")-[r:"+r+"]-() RETURN elementId(n),count(r) AS count")
+            #print(degrees)
+            for d in degrees:
+                if d['elementId(n)'] in dictRel:
+                    dictRel[d['elementId(n)']][r] = d['count']
+                else:
+                    dictRel[d['elementId(n)']]={}
+
+        print(dictRel)
+        rel.append("elementId")
+        return rel, dictRel
 
 # Example usage:
 if __name__ == "__main__":
@@ -139,5 +175,7 @@ if __name__ == "__main__":
         #print(db.getValidProperties('Airport'))
 
         f,m = db.createDatasetForLabel('Airport')
-        print(f)
-        print(m)
+        #print(f)
+        #print(m)
+
+        db.getDegreeOfRelationForLabel('Airport')
