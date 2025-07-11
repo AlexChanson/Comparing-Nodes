@@ -1,4 +1,6 @@
 from statistics import variance, pvariance
+
+import numpy as np
 from neo4j import GraphDatabase, basic_auth
 from typing import Any, Dict, List, Optional
 from scipy.stats import variation
@@ -124,7 +126,7 @@ class Neo4jConnector:
             [row.get(f"n.{feat}") for feat in features]
             for row in values
         ]
-        return features, matrix
+        return features, np.asarray(matrix)
 
 
 # Example usage:
@@ -137,3 +139,5 @@ if __name__ == "__main__":
         #print(db.getValidProperties('Airport'))
 
         f,m = db.createDatasetForLabel('Airport')
+        print(f)
+        print(m)
