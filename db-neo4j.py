@@ -85,22 +85,15 @@ class Neo4jConnector:
         for v in values:
             if v[str]!=None:
                 tabVal.append(v[str])
-        #print("on "+property)
-        #print(len(tabVal))
-        #print(len(set(tabVal)))
-        # then compute variance
-        #print(tabVal)
-        return len(tabVal),len(set(tabVal)),variance(tabVal),pvariance(tabVal),variation(tabVal)
+        return tabVal,len(tabVal),len(set(tabVal)),variance(tabVal),pvariance(tabVal),variation(tabVal)
 
     def getValidProperties(self,label):
         result=[]
         tabProp=self.getNumericalProperties(label)
         for p in tabProp:
-            nb,nbd,v,pv,cv=self.varianceOfProperty(p,label)
-            #print("for property: "+p+ " we have cv:" +str(cv))
-            #if cv > 0 and cv < 1:
+            tab,nb,nbd,v,pv,cv=self.varianceOfProperty(p,label)
             print(p,nb,nbd)
-            if nbd<nb and nbd>1:
+            if nbd<nb and nbd>1: #fixme check better ways of validating
                 result.append(p)
         return result
 
@@ -117,13 +110,13 @@ class Neo4jConnector:
         return carinalities
 
 
+
 # Example usage:
 if __name__ == "__main__":
     # adjust URI/user/password as needed
     with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
 
-        result=db.getNumericalProperties('Airport')
-        print(result)
+        print(db.getNumericalProperties('Airport'))
 
         print(db.getRelationCardinality())
 

@@ -1,5 +1,19 @@
 import numpy as np
 from numba import njit
+from scipy.stats import rankdata
+
+
+def percentile_rank(data):
+    """
+    Compute the percentile‐rank of each element in `data`.
+    Returns an array of floats in [0, 1].
+    """
+    arr = np.asarray(data, dtype=float)
+    # rankdata: ranks from 1 to N, averaging ties
+    ranks = rankdata(arr, method='average')
+    # scale so that min rank → 0.0, max rank → 1.0
+    return (ranks - 1) / (len(arr) - 1)
+
 
 def pairwise_from_membership(membership):
     pairwise = np.zeros((len(membership), len(membership)))
