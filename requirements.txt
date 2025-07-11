@@ -3,3 +3,5 @@ PrettyPrintTree
 matplotlib
 scikit-learn
 numba
+neo4j
+typing
