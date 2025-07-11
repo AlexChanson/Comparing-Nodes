@@ -92,7 +92,6 @@ class Neo4jConnector:
         tabProp=self.getNumericalProperties(label)
         for p in tabProp:
             tab,nb,nbd,v,pv,cv=self.varianceOfProperty(p,label)
-            print(p,nb,nbd)
             if nbd<nb and nbd>1: #fixme check better ways of validating
                 result.append(p)
         return result
@@ -109,6 +108,23 @@ class Neo4jConnector:
         carinalities=self.execute_query(query)
         return carinalities
 
+    def createDatasetForLabel(self,label):
+        tabProp=self.getValidProperties(label)
+        str=''
+        for p in tabProp:
+            str=str+'n.'+p+','
+        str=str[:-1]
+        values = self.execute_query("MATCH (n:" + label + ") RETURN "+str)
+        # transform into features + matrix
+        # 1. Extract feature names from the keys of the first dict, stripping the "n." prefix
+        features = [key.split('.', 1)[1] for key in values[0].keys()]
+
+        # 2. Build the matrix of values, row by row
+        matrix = [
+            [row.get(f"n.{feat}") for feat in features]
+            for row in values
+        ]
+        return features, matrix
 
 
 # Example usage:
@@ -116,8 +132,8 @@ if __name__ == "__main__":
     # adjust URI/user/password as needed
     with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
 
-        print(db.getNumericalProperties('Airport'))
-
+        #print(db.getNumericalProperties('Airport'))
         print(db.getRelationCardinality())
+        #print(db.getValidProperties('Airport'))
 
-        print(db.getValidProperties('Airport'))
+        f,m = db.createDatasetForLabel('Airport')
