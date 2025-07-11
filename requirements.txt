@@ -5,3 +5,5 @@ scikit-learn
 numba
 neo4j
 typing
+statistics
+scipy.stats
