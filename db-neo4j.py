@@ -165,6 +165,18 @@ class Neo4jConnector:
         rel.append("elementId")
         return rel, dictRel
 
+
+    def getBestPageRank(self, label, relationship):
+        # retrieve the id of the node with highest page rank value
+        # first remove graph if exists
+        self.execute_query("CALL gds.graph.drop('myGraph', false) YIELD graphName;")
+        queryGraph="MATCH (source:"+label+")-[:"+relationship+"]->(target:"+label+") RETURN gds.graph.project(  'myGraph',  source,  target);"
+        queryResult=("CALL gds.pageRank.stream('myGraph') YIELD nodeId, score RETURN elementId(gds.util.asNode(nodeId)) AS elementId, score "
+                     "ORDER BY score DESC, elementId ASC limit 1;")
+        self.execute_query(queryGraph)
+        result = self.execute_query(queryResult)
+        return result[0]['elementId']
+
 # Example usage:
 if __name__ == "__main__":
     # adjust URI/user/password as needed
@@ -178,4 +190,6 @@ if __name__ == "__main__":
         #print(f)
         #print(m)
 
-        db.getDegreeOfRelationForLabel('Airport')
+        #db.getDegreeOfRelationForLabel('Airport')
+
+        print(db.getBestPageRank('Airport', 'ROUTE_TO'))
