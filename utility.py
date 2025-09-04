@@ -134,7 +134,6 @@ def analyze_features(
     sortedByCV=np.argsort(CV)[:minCompFeat]
 
 
-
     for i in range(x.shape[1]):
         n = x[:,i].shape[0]
         if n < min_n:
