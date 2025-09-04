@@ -105,7 +105,8 @@ def categorize_feature(
 
 def analyze_features(
     x,
-    maxClustFeat=5,
+    maxClustFeat=2,
+    minCompFeat=1,
     bc_threshold: float = 0.55,
     cv_max: float = 0.05,
     min_n: int = 5
@@ -126,33 +127,43 @@ def analyze_features(
     CV=np.asarray(CV)
 
     sortedByBC=np.argsort(BC)[:maxClustFeat]
+    sortedByCV=np.argsort(CV)[:minCompFeat]
 
     for i in range(x.shape[1]):
-        if i in sortedByBC:
+        if i in sortedByCV:
             results.append({
-                "category": "clustering",
+                "category": "comparison",
                 "n": len(x[:i]),
                 "bc": float(BC[i]),
                 "cv_spacings": float(CV[i]),
-                "reason": f"top feature for clustering"
+                "reason": f" top for comparison"
             })
         else:
-            if CV[i]> 0.05:
+            if i in sortedByBC:
                 results.append({
-                    "category": "comparison",
+                    "category": "clustering",
                     "n": len(x[:i]),
                     "bc": float(BC[i]),
                     "cv_spacings": float(CV[i]),
-                    "reason": f"not top for clustering and score ok"
+                    "reason": f"top feature for clustering"
                 })
             else:
-                results.append({
-                    "category": "unused",
-                    "n": len(x[:i]),
-                    "bc": float(BC[i]),
-                    "cv_spacings": float(CV[i]),
-                    "reason": f"not top for clustering and score not ok"
-                } )
+                if CV[i]> 0.05:
+                    results.append({
+                        "category": "comparison",
+                        "n": len(x[:i]),
+                        "bc": float(BC[i]),
+                        "cv_spacings": float(CV[i]),
+                        "reason": f"not top for clustering and score ok"
+                    })
+                else:
+                    results.append({
+                        "category": "unused",
+                        "n": len(x[:i]),
+                        "bc": float(BC[i]),
+                        "cv_spacings": float(CV[i]),
+                        "reason": f"not top for clustering and score not ok"
+                    } )
 
     return results
 
