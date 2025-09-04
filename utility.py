@@ -73,6 +73,7 @@ def categorize_feature(
     bc = bimodality_coefficient(x)
     cv = cv_of_spacings(x)
 
+
     if np.isfinite(cv) and cv <= cv_max:
         return {
             "category": "comparison",
