@@ -126,44 +126,60 @@ def analyze_features(
     BC=np.asarray(BC)
     CV=np.asarray(CV)
 
-    sortedByBC=np.argsort(BC)[:maxClustFeat]
+    sortedByBC=np.argsort(BC)
+    # reverse for clustering since large values preferred
+    sortedByBC = sortedByBC[::-1]
+    sortedByBC = sortedByBC[:maxClustFeat]
+
     sortedByCV=np.argsort(CV)[:minCompFeat]
 
+
+
     for i in range(x.shape[1]):
-        if i in sortedByCV:
-            results.append({
-                "category": "comparison",
-                "n": len(x[:i]),
-                "bc": float(BC[i]),
-                "cv_spacings": float(CV[i]),
-                "reason": f" among minCompFeat top feature for comparison"
-            })
+        n = x[:,i].shape[0]
+        if n < min_n:
+            return {
+                "category": "unused",
+                "n": n,
+                "bc": np.nan,
+                "cv_spacings": np.nan,
+                "reason": f"Too few values (<{min_n})."
+            }
         else:
-            if i in sortedByBC:
+            if i in sortedByCV:
                 results.append({
-                    "category": "clustering",
+                    "category": "comparison",
                     "n": len(x[:i]),
                     "bc": float(BC[i]),
                     "cv_spacings": float(CV[i]),
-                    "reason": f"top feature for clustering"
+                    "reason": f" among minCompFeat top feature for comparison"
                 })
             else:
-                if CV[i]> 0.05:
+                if i in sortedByBC:
                     results.append({
-                        "category": "comparison",
+                        "category": "clustering",
                         "n": len(x[:i]),
                         "bc": float(BC[i]),
                         "cv_spacings": float(CV[i]),
-                        "reason": f"not top for clustering and score ok"
+                        "reason": f"top feature for clustering"
                     })
                 else:
-                    results.append({
-                        "category": "unused",
-                        "n": len(x[:i]),
-                        "bc": float(BC[i]),
-                        "cv_spacings": float(CV[i]),
-                        "reason": f"not top for clustering and score not ok"
-                    } )
+                    if CV[i] <= cv_max:
+                        results.append({
+                            "category": "comparison",
+                            "n": len(x[:i]),
+                            "bc": float(BC[i]),
+                            "cv_spacings": float(CV[i]),
+                            "reason": f"not top for clustering and score ok"
+                        })
+                    else:
+                        results.append({
+                            "category": "unused",
+                            "n": len(x[:i]),
+                            "bc": float(BC[i]),
+                            "cv_spacings": float(CV[i]),
+                            "reason": f"not top for clustering and score not ok"
+                        } )
 
     return results
 
