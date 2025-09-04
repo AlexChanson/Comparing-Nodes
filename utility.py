@@ -73,6 +73,15 @@ def categorize_feature(
     bc = bimodality_coefficient(x)
     cv = cv_of_spacings(x)
 
+    if np.isfinite(cv) and cv <= cv_max:
+        return {
+            "category": "comparison",
+            "n": n,
+            "bc": float(bc),
+            "cv_spacings": float(cv),
+            "reason": f"Even spacing: CV={cv:.3f} ≤ {cv_max}."
+        }
+
     if np.isfinite(bc) and bc > bc_threshold:
         return {
             "category": "clustering",
@@ -82,14 +91,6 @@ def categorize_feature(
             "reason": f"BC={bc:.3f} > threshold {bc_threshold} → likely ≥2 modes."
         }
 
-    if np.isfinite(cv) and cv <= cv_max:
-        return {
-            "category": "comparison",
-            "n": n,
-            "bc": float(bc),
-            "cv_spacings": float(cv),
-            "reason": f"Even spacing: CV={cv:.3f} ≤ {cv_max}."
-        }
 
     return {
         "category": "unused",
