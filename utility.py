@@ -147,11 +147,11 @@ def analyze_features(
                 })
             else:
                 results.append({
-                    "category": "comparison",
+                    "category": "unused",
                     "n": len(x[:i]),
                     "bc": float(BC[i]),
                     "cv_spacings": float(CV[i]),
-                    "reason": f"not top for clustering and score ok"
+                    "reason": f"not top for clustering and score not ok"
                 } )
 
     return results
