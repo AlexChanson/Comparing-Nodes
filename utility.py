@@ -136,7 +136,7 @@ def analyze_features(
                 "n": len(x[:i]),
                 "bc": float(BC[i]),
                 "cv_spacings": float(CV[i]),
-                "reason": f" top for comparison"
+                "reason": f" among minCompFeat top feature for comparison"
             })
         else:
             if i in sortedByBC:
