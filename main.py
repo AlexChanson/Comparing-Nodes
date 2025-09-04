@@ -104,9 +104,9 @@ if __name__ == '__main__':
 
     h_assignement = analyze_features(data)
     h_sol = list(map(lambda x : x['category'], h_assignement))
+    m = {'unused':0, "clustering":-1, "comparison":1}
+    h_sol = list(map(lambda x : m[x], h_sol))
     print(h_sol)
-    m = {'unused'}
-    h_sol = list(map(lambda x: x['category'], h_assignement))
 
     if DISPLAY:
         from matplotlib import pyplot as plt
