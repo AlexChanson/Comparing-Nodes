@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit
+from numba.core.inline_closurecall import length_of_iterator
 from scipy.stats import rankdata, describe
 try:
     from diptest import diptest as _diptest_fn
@@ -101,7 +102,60 @@ def categorize_feature(
         "reason": "Not bimodal and not evenly spaced."
     }
 
+
 def analyze_features(
+    x,
+    maxClustFeat=5,
+    bc_threshold: float = 0.55,
+    cv_max: float = 0.05,
+    min_n: int = 5
+):
+    """
+    features: dict like {"feat1": [..], "feat2": [..], ...}
+    Returns: dict mapping feature name -> result dict from categorize_feature.
+    """
+
+    results=[]
+    BC = []
+    CV = []
+    for i in range(x.shape[1]):
+        BC.append(bimodality_coefficient(x[:i]))
+        CV.append(cv_of_spacings(x[:i]))
+
+    sortedByBC=np.argsort(BC)[:maxClustFeat]
+
+    for i in range(x.shape[1]):
+        if i in sortedByBC:
+            results.append({
+                "category": "clustering",
+                "n": len(x[:i]),
+                "bc": float(BC[sortedByBC]),
+                "cv_spacings": float(CV[sortedByBC[i]]),
+                "reason": f"top feature for clustering"
+            })
+        else:
+            if CV[i]> 0.05:
+                results.append({
+                    "category": "comparison",
+                    "n": len(x[:i]),
+                    "bc": float(BC[sortedByBC]),
+                    "cv_spacings": float(CV[sortedByBC[i]]),
+                    "reason": f"not top for clustering and score ok"
+                })
+            else:
+                results.append({
+                    "category": "comparison",
+                    "n": len(x[:i]),
+                    "bc": float(BC[sortedByBC]),
+                    "cv_spacings": float(CV[sortedByBC[i]]),
+                    "reason": f"not top for clustering and score ok"
+                } )
+
+    return results
+
+
+
+def analyze_features_OLD(
     x,
     bc_threshold: float = 0.55,
     cv_max: float = 0.05,
