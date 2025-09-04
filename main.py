@@ -102,6 +102,12 @@ if __name__ == '__main__':
 
     print(max_from_tree(root))
 
+    h_assignement = analyze_features(data)
+    h_sol = list(map(lambda x : x['category'], h_assignement))
+    print(h_sol)
+    m = {'unused'}
+    h_sol = list(map(lambda x: x['category'], h_assignement))
+
     if DISPLAY:
         from matplotlib import pyplot as plt
         sols, x, y = bi_obj_check(root, data)

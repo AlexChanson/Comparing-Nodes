@@ -1,6 +1,6 @@
 import numpy as np
 from numba import njit
-from scipy.stats import rankdata
+from scipy.stats import rankdata, describe
 try:
     from diptest import diptest as _diptest_fn
     _HAS_DIP = True
@@ -15,9 +15,8 @@ def bimodality_coefficient(x: np.ndarray) -> float:
     BC = (skew^2 + 1) / kurtosis  (Pearson moments; kurtosis is 3 for Gaussian)
     Rule of thumb: BC > ~0.55 suggests multimodality/bimodality.
     """
-    x = np.asarray(x, dtype=float)
     x = x[np.isfinite(x)]
-    n = x.size
+    n = x.shape[0]
     if n < 5:
         return np.nan
     m = np.mean(x)
@@ -59,9 +58,8 @@ def categorize_feature(
     """
     Returns: dict with category, bc, cv_spacings, n, and brief reason.
     """
-    x = np.asarray(x, dtype=float)
     x = x[np.isfinite(x)]
-    n = x.size
+    n = x.shape[0]
 
     if n < min_n:
         return {
@@ -102,7 +100,7 @@ def categorize_feature(
     }
 
 def analyze_features(
-    features: dict,
+    x,
     bc_threshold: float = 0.55,
     cv_max: float = 0.05,
     min_n: int = 5
@@ -111,13 +109,14 @@ def analyze_features(
     features: dict like {"feat1": [..], "feat2": [..], ...}
     Returns: dict mapping feature name -> result dict from categorize_feature.
     """
-    results = {}
-    for name, series in features.items():
-        results[name] = categorize_feature(
-            series,
+    results = []
+    for i in range(x.shape[1]):
+        results.append(  categorize_feature(
+            x[:,i],
             bc_threshold=bc_threshold,
             cv_max=cv_max,
             min_n=min_n
+        )
         )
     return results
 
