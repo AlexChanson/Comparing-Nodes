@@ -122,6 +122,9 @@ def analyze_features(
         BC.append(bimodality_coefficient(x[:i]))
         CV.append(cv_of_spacings(x[:i]))
 
+    BC=np.asarray(BC)
+    CV=np.asarray(CV)
+
     sortedByBC=np.argsort(BC)[:maxClustFeat]
 
     for i in range(x.shape[1]):
@@ -129,8 +132,8 @@ def analyze_features(
             results.append({
                 "category": "clustering",
                 "n": len(x[:i]),
-                "bc": float(BC[sortedByBC]),
-                "cv_spacings": float(CV[sortedByBC[i]]),
+                "bc": float(BC[i]),
+                "cv_spacings": float(CV[i]),
                 "reason": f"top feature for clustering"
             })
         else:
@@ -138,16 +141,16 @@ def analyze_features(
                 results.append({
                     "category": "comparison",
                     "n": len(x[:i]),
-                    "bc": float(BC[sortedByBC]),
-                    "cv_spacings": float(CV[sortedByBC[i]]),
+                    "bc": float(BC[i]),
+                    "cv_spacings": float(CV[i]),
                     "reason": f"not top for clustering and score ok"
                 })
             else:
                 results.append({
                     "category": "comparison",
                     "n": len(x[:i]),
-                    "bc": float(BC[sortedByBC]),
-                    "cv_spacings": float(CV[sortedByBC[i]]),
+                    "bc": float(BC[i]),
+                    "cv_spacings": float(CV[i]),
                     "reason": f"not top for clustering and score ok"
                 } )
 
@@ -351,6 +354,6 @@ if __name__ == "__main__":
         "tiny":      [0, 1, 2],                          # too few points
     }
 
-    out = analyze_features(feats, bc_threshold=0.55, cv_max=0.05, min_n=5)
+    out = analyze_features(feats)
     for k, v in out.items():
         print(k, "->", v["category"], "|", v["reason"], "| BC:", v["bc"], "CV:", v["cv_spacings"])
