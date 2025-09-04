@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn import preprocessing
 
 def load_iris(path="./sample_data/iris.csv"):
     features = []
@@ -11,3 +12,7 @@ def load_iris(path="./sample_data/iris.csv"):
             nodes.append(list(map(float, line.split(',')[:-1])))
 
     return features, np.asarray(nodes)
+
+def normalize(data):
+    scaled = preprocessing.MinMaxScaler().fit_transform(data)
+    return scaled

@@ -1,4 +1,4 @@
-from datasets import load_iris
+from datasets import load_iris, normalize
 from b_and_b import *
 from clustering import *
 from utility import *
@@ -85,11 +85,11 @@ def bnb(node : Node, node_map : dict[Node], **params):
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
     features, data = load_iris()
-    #TODO Min max normalisation (or robust scaling) of attributes to avoid messing the clustering metric and trivial solution
+    data = normalize(data)
 
     k = 3
     mtd = "fcm2"
-    DISPLAY = False
+    DISPLAY = True
 
     root = Node().build_root(features)
 
@@ -102,11 +102,14 @@ if __name__ == '__main__':
 
     print(max_from_tree(root))
 
-    h_assignement = analyze_features(data)
+    h_assignement = analyze_features(data, maxClustFeat=min(5, len(features)-1))
+
     h_sol = list(map(lambda x : x['category'], h_assignement))
     m = {'unused':0, "clustering":-1, "comparison":1}
     h_sol = list(map(lambda x : m[x], h_sol))
-    print(h_sol)
+    membership = solve_node(h_sol, data, k, method='fcm2', max_iters=100)
+    n = Node().from_starting(h_sol, membership, si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol), membership))
+    print(n)
 
     if DISPLAY:
         from matplotlib import pyplot as plt

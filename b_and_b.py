@@ -19,6 +19,12 @@ class Node:
         self.root = True
         return self
 
+    def from_starting(self, s , membership_matrix, objective):
+        self.sol = s
+        self.membership = membership_matrix
+        self.obj = objective
+        return self
+
     def branch(self, indicator:int, assignment:str):
         if self.sol[indicator] != 0:
             raise ValueError("Indicator already assigned")
@@ -32,6 +38,19 @@ class Node:
         else:
             raise ValueError("Unknown assignment : pick either clust or comp")
         return n
+
+    def swap(self, indicator:int):
+        n = self.__copy()
+        n.depth += 1
+        self.children.append(n)
+        if self.sol[indicator] == 1:
+            n.sol[indicator] = -1
+            return n
+        elif self.sol[indicator] == -1:
+            n.sol[indicator] = 1
+            return n
+        else:
+            raise ValueError("Swap not possible, use branch")
 
     def __copy(self):
         n = Node()
@@ -82,7 +101,7 @@ class Node:
             return float("nan")
         k = max(self.membership)
 
-        return  _si_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
+        return  si_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
 
     def eval_bi_obj(self, dataset):
         if self.membership is None:
@@ -107,12 +126,12 @@ def _bi_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
         for i in indices:
             for j in indices:
                 if i > j:
-                    s1 += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
-                    s2 += (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+                    s1 += comp_ratio *  np.sum(np.abs(X[i] - X[j]))
+                    s2 += (1 - clus_ratio)  * np.sum((X_[i] - X_[j]) ** 2)
     return s1, s2
 
 @njit
-def _si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
+def si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
     X_ = dataset[:, cl_mask]
     clus_ratio = np.sum(cl_mask) / sol_len  # clustering dims / total dims
     X = dataset[:, co_mask]
@@ -124,7 +143,9 @@ def _si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
         for i in indices:
             for j in indices:
                 if i > j:
-                    s += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
-                    s -= (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+                    #s += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
+                    s +=  comp_ratio *  np.sum(np.abs(X[i] - X[j]))
+                    #s -= (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+                    s -= (1 - clus_ratio)  * np.sum((X_[i] - X_[j]) ** 2)
 
     return s
