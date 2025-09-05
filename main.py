@@ -89,7 +89,7 @@ if __name__ == '__main__':
 
     k = 3
     mtd = "fcm2"
-    DISPLAY = True
+    DISPLAY = False
 
     root = Node().build_root(features)
 
@@ -107,9 +107,45 @@ if __name__ == '__main__':
     h_sol = list(map(lambda x : x['category'], h_assignement))
     m = {'unused':0, "clustering":-1, "comparison":1}
     h_sol = list(map(lambda x : m[x], h_sol))
-    membership = solve_node(h_sol, data, k, method='fcm2', max_iters=100)
+    membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
     n = Node().from_starting(h_sol, membership, si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol), membership))
     print(n)
+
+    n_steps = 5
+    while n_steps > 0:
+        print("[Local search] Step", n_steps)
+        possible = []
+        for i in range(len(features)):
+            p = n.swap(i)
+            if not p:
+                l = n.branch(i, "cluster")
+                r = n.branch(i, "comparison")
+                l.membership = solve_node(l.mask(), data, k, method=mtd, max_iters=100)
+                r.membership = solve_node(r.mask(), data, k, method=mtd, max_iters=100)
+                l.obj = l.eval_obj(data)
+                r.obj = r.eval_obj(data)
+                possible.append(l)
+                possible.append(r)
+            elif p.is_feasible():
+                p.membership = solve_node(p.mask(), data, k, method=mtd, max_iters=100)
+                p.obj = p.eval_obj(data)
+                possible.append(p)
+        best_node = possible[0]
+        best_obj = possible[0].obj
+
+        for p in possible:
+            if p.obj > best_obj:
+                best_obj = p.obj
+                best_node = p
+
+        if best_obj < n.obj:
+            print("Local minima found")
+            break
+        n = best_node
+        n_steps -= 1
+
+    print(n)
+
 
     if DISPLAY:
         from matplotlib import pyplot as plt

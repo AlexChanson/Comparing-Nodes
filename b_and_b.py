@@ -50,7 +50,7 @@ class Node:
             n.sol[indicator] = 1
             return n
         else:
-            raise ValueError("Swap not possible, use branch")
+            return None
 
     def __copy(self):
         n = Node()
@@ -111,6 +111,9 @@ class Node:
         s1, s2 = _bi_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
 
         return float(s1), float(s2)
+
+    def __str__(self):
+        return str(str(self.sol) + " | " + str(self.obj))
 
 @njit
 def _bi_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
