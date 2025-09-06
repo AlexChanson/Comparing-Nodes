@@ -263,7 +263,7 @@ if __name__ == "__main__":
     with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
 
         label="Airport"
-        out=label+"_indicators.csv"
+        out="sample_data/"+label+"_indicators.csv"
         db.fetch_as_dataframe(out,label,10)
 
         #print(db.getNumericalProperties('Airport'))
