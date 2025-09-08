@@ -1,7 +1,8 @@
 import numpy as np
 from numpy.typing import NDArray
-from numba import njit, jit, objmode
+from numba import njit, jit, objmode, types
 import math
+from numba.typed import List
 
 @njit
 def _random_unique_indices(n_samples: np.int64, k: np.int64):
@@ -191,12 +192,13 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
 
         centroids_mem.append(np.copy(centroids))
 
-        used = set()
+        used = np.zeros(n_samples, dtype=np.bool)
         for j in range(k):
-            candidates = np.argsort(U[j], axis=0)[:10+k]
-            candidates = candidates[~np.isin(candidates, list(used))]
-            D = np.zeros(candidates.shape[0], np.float64)
+            candidates = np.argsort(U[j])[:10+k].astype(np.int64)
+            D = np.zeros(10+k, np.float64)
             for c_idx, c in enumerate(candidates):
+                if used[c]:
+                    continue
                 for i in range(n_samples):
                     a = 0.0
                     for dim in range(X.shape[1]):
@@ -208,9 +210,14 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
                     b = b / X_comp.shape[1]
                     D[c_idx] += (1 / (1 + math.exp(b-a))) * U[j, i]**exponent
 
-            potential = candidates[np.argmin(D)]
+            potentials = candidates[np.argsort(D)]
+            skip = 0
+            potential = potentials[skip]
+            while used[potential]:
+                skip += 1
+                potential = potentials[skip]
             centroids[j] = potential
-            used.add(potential)
+            used[potential] = True
 
 
         if np.abs(U - U_old).max() <= conv_criteria:
