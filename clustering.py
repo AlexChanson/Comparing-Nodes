@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.typing import NDArray
 from numba import njit, jit, objmode
-from sklearn.metrics import pairwise_distances
+import math
 
 @njit
 def _random_unique_indices(n_samples: np.int64, k: np.int64):
@@ -137,7 +137,7 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         print("Warning: convergence")
     return arithmetic_mean.argmax(axis=0)
 
-#@njit()
+@njit()
 def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
     n_samples = X.shape[0]
 
@@ -149,6 +149,8 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
     U = np.zeros((k, n_samples), np.float64)
 
     exponent = 1.0 / (m - 1.0)
+
+    centroids_mem = []
 
     conv_check = False
     for _ in range(max_iters):
@@ -168,29 +170,48 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
 
         U_old = U.copy()
 
-        to_corr = []
+        dists = 1 / (1 + np.exp(-dists))
+
         for j in range(k):
             for i in range(n_samples):
                 if i == centroids[j]:
                     U[j, i] = 1.0
-                    for clus in range(k):
-                        if clus != j:
-                            to_corr.append((clus, j))
-                    continue
-                s1 = 0.0
-                for l in range(k):
-                    s1 += (dists[j, i] / dists[l, i]) ** exponent
-                U[j, i] = 1.0 / s1
-        for x,y in to_corr:
-            U[x,y] = 0.0
+                else:
+                    s1 = 0.0
+                    for l in range(k):
+                        s1 += (dists[j, i] / dists[l, i]) ** exponent
+                    U[j, i] = 1.0 / s1
+        U /= U.sum(axis=0)
+        for cl, centroid in np.ndenumerate(centroids):
+            for line in range(k):
+                if cl[0] != line:
+                    U[line, centroid] = 0.0
+                else:
+                    U[line, centroid] = 1.0
 
+        centroids_mem.append(np.copy(centroids))
+
+        used = set()
         for j in range(k):
-            var = 0
-            idx = np.argsort(U[j], axis=0)[var]
-            while idx in centroids[:j]:
-                var += 1
-                idx = np.argsort(U[j], axis=0)[var]
-            centroids[j] = idx
+            candidates = np.argsort(U[j], axis=0)[:10+k]
+            candidates = candidates[~np.isin(candidates, list(used))]
+            D = np.zeros(candidates.shape[0], np.float64)
+            for c_idx, c in enumerate(candidates):
+                for i in range(n_samples):
+                    a = 0.0
+                    for dim in range(X.shape[1]):
+                        a += (X[c, dim] - X[i, dim]) ** 2  # good when small
+                    a = a / X.shape[1]
+                    b = 0.0
+                    for dim in range(X_comp.shape[1]):
+                        b += np.abs(X_comp[c, dim] - X_comp[i, dim])  # good when big
+                    b = b / X_comp.shape[1]
+                    D[c_idx] += (1 / (1 + math.exp(b-a))) * U[j, i]**exponent
+
+            potential = candidates[np.argmin(D)]
+            centroids[j] = potential
+            used.add(potential)
+
 
         if np.abs(U - U_old).max() <= conv_criteria:
             conv_check = True
