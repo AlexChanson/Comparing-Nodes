@@ -11,6 +11,7 @@ class Node:
         self.membership : list[int] = None
         self.root : bool = False
         self.obj : float = float('nan')
+        self.clustering_used = None
 
     def build_root(self, indicators):
         if len(indicators) < 2:

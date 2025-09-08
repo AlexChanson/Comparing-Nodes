@@ -116,8 +116,8 @@ if __name__ == '__main__':
         print("[Local search] Step", n_steps)
         possible = []
         for i in range(len(features)):
-            p = n.swap(i)
-            if not p:
+            s = n.swap(i)
+            if not s:
                 l = n.branch(i, "cluster")
                 r = n.branch(i, "comparison")
                 l.membership = solve_node(l.mask(), data, k, method=mtd, max_iters=100)
@@ -126,10 +126,10 @@ if __name__ == '__main__':
                 r.obj = r.eval_obj(data)
                 possible.append(l)
                 possible.append(r)
-            elif p.is_feasible():
-                p.membership = solve_node(p.mask(), data, k, method=mtd, max_iters=100)
-                p.obj = p.eval_obj(data)
-                possible.append(p)
+            elif s.is_feasible():
+                s.membership = solve_node(s.mask(), data, k, method=mtd, max_iters=200)
+                s.obj = s.eval_obj(data)
+                possible.append(s)
         best_node = possible[0]
         best_obj = possible[0].obj
 
