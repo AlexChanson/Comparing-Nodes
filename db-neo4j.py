@@ -8,6 +8,7 @@ from scipy.stats import variation
 import argparse
 import pandas as pd
 from typing import Optional
+from validation import process_dataframe, export
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -264,7 +265,18 @@ if __name__ == "__main__":
 
         label="Airport"
         out="sample_data/"+label+"_indicators.csv"
-        db.fetch_as_dataframe(out,label,10)
+        df=db.fetch_as_dataframe(out,label,10)
+
+        null_threshold=0.5
+        distinct_low=0.02
+        distinct_high=0.7
+
+        keep,report=process_dataframe(df,null_threshold,distinct_low,distinct_high)
+
+        processedIndicators="sample_data/"+label+"_indicators_processed.csv"
+        processingReport="reports/"+label+"_indicators_processed.csv"
+        export(keep,report,processedIndicators,processingReport)
+
 
         #print(db.getNumericalProperties('Airport'))
         #print(db.getRelationCardinality())
