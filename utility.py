@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit
 from numba.core.inline_closurecall import length_of_iterator
 from scipy.stats import rankdata, describe
+import pandas as pd
 try:
     from diptest import diptest as _diptest_fn
     _HAS_DIP = True
@@ -369,6 +370,43 @@ def bi_obj_check(root, data):
             return 1 + sum([internal(c) for c in node.children])
     sol_count =internal(root)
     return sols, x, y
+
+
+
+def outer_join_features(df_left: pd.DataFrame,
+                        df_right: pd.DataFrame,
+                        id_left: str = "rootId",
+                        id_right: str = "node_id",
+                        out_id: str = "node_id") -> pd.DataFrame:
+    # Work on copies; align dtypes to nullable Int64 so NaNs are allowed
+    A = df_left.copy()
+    B = df_right.copy()
+    A[id_left] = pd.to_numeric(A[id_left], errors="raise").astype("Int64")
+    B[id_right] = pd.to_numeric(B[id_right], errors="raise").astype("Int64")
+
+    # Outer merge; if there are overlapping non-id columns, suffix the right-hand ones
+    M = A.merge(B, how="outer", left_on=id_left, right_on=id_right, suffixes=("", "_r"))
+
+
+    # Single unified id
+    M[out_id] = M[id_left].combine_first(M[id_right]).astype("Int64")
+
+    # If any feature columns exist on both sides with the same name, keep the left value
+    # and fall back to the right-suffixed one where left is NaN.
+    overlap = set(A.columns) & set(B.columns)
+    overlap.discard(id_left); overlap.discard(id_right)
+    for c in overlap:
+        if f"{c}_r" in M.columns:
+            M[c] = M[c].combine_first(M[f"{c}_r"])
+            M.drop(columns=[f"{c}_r"], inplace=True)
+
+    # Drop the original id columns, put unified id first, sort for readability
+    M.drop(columns=[id_left, id_right], inplace=True, errors="ignore")
+    cols = [out_id] + [c for c in M.columns if c != out_id]
+    #print(cols)
+    #print(M.columns)
+    M = M[cols].sort_values(out_id).reset_index(drop=True)
+    return M
 
 
 # ---------- Example ----------

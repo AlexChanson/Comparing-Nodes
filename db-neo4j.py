@@ -10,6 +10,7 @@ import pandas as pd
 from typing import Optional
 
 from many2many import aggregate_m2m_properties_for_label
+from utility import outer_join_features
 from validation import process_dataframe, export
 
 NUMERIC_TYPES = [
@@ -271,12 +272,15 @@ if __name__ == "__main__":
         label="Movie"
         #label="Airport"
 
-        df = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
-        print(df)
+        dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
+        #print(dfm2m)
 
-        """
+
         out="sample_data/"+label+"_indicators.csv"
-        df=db.fetch_as_dataframe(out,label,10)
+        df121=db.fetch_as_dataframe(out,label,10)
+        #print(df)
+
+        df = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out_id")
 
         null_threshold=0.5
         distinct_low=0.002
@@ -301,4 +305,3 @@ if __name__ == "__main__":
         #db.getDegreeOfRelationForLabel('Airport')
 
         #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
-    """
