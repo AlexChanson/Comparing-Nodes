@@ -7,7 +7,7 @@ from copy import copy
 import numpy as np
 from numpy.typing import NDArray
 from numba import njit
-from PrettyPrint import PrettyPrintTree
+#from PrettyPrint import PrettyPrintTree
 
 
 #@njit()
@@ -96,9 +96,9 @@ if __name__ == '__main__':
     nodes : dict[Node] = {}
     bnb(root, nodes, method=mtd)
 
-    pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data),
-                         orientation=PrettyPrintTree.Horizontal)
-    pt(root)
+    #pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data),
+    #                     orientation=PrettyPrintTree.Horizontal)
+    #pt(root)
 
     print(max_from_tree(root))
 
