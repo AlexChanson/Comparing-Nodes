@@ -18,7 +18,7 @@ def find_many_to_many_reltypes(session: Session, label: str) -> List[str]:
     """
     lbl = _backtick(label)
     q = f"""
-    MATCH (n:{lbl})-[r]->()
+    MATCH (n:{lbl})-[r]-()
     WITH n, type(r) AS reltype
     // For each (n, reltype), count how many outgoing edges of that type n has
     WITH reltype, n, count(*) AS deg
@@ -87,7 +87,7 @@ def _aggregate_neighbors_for_reltype(
 
     # --- Neighbor node properties ---
     q_neighbors = f"""
-    MATCH (n:{lbl})-[r]->(m)
+    MATCH (n:{lbl})-[r]-(m)
     WHERE type(r) = $reltype
     WITH n, m
     UNWIND keys(m) AS k
@@ -107,7 +107,7 @@ def _aggregate_neighbors_for_reltype(
     # --- Relationship properties ---
     if include_rels:
         q_rels = f"""
-        MATCH (n:{lbl})-[r]->()
+        MATCH (n:{lbl})-[r]-()
         WHERE type(r) = $reltype
         UNWIND keys(r) AS k
         WITH n, k, r[k] AS v
@@ -150,6 +150,7 @@ def aggregate_m2m_properties_for_label(
     """
     with driver.session() as session:
         reltypes = list(only_reltypes) if only_reltypes else find_many_to_many_reltypes(session, label)
+        print(reltypes)
 
         # If no M2M reltypes, still return DF with node ids and no extra cols
         if not reltypes:

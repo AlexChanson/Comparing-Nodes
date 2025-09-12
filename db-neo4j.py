@@ -8,6 +8,8 @@ from scipy.stats import variation
 import argparse
 import pandas as pd
 from typing import Optional
+
+from many2many import aggregate_m2m_properties_for_label
 from validation import process_dataframe, export
 
 NUMERIC_TYPES = [
@@ -44,6 +46,9 @@ class Neo4jConnector:
             encrypted=encrypted,
             **driver_kwargs
         )
+
+    def getDriver(self) -> GraphDatabase.driver:
+        return self._driver
 
     def close(self) -> None:
         """
@@ -265,6 +270,11 @@ if __name__ == "__main__":
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
         label="Movie"
         #label="Airport"
+
+        df = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
+        print(df)
+
+        """
         out="sample_data/"+label+"_indicators.csv"
         df=db.fetch_as_dataframe(out,label,10)
 
@@ -279,6 +289,7 @@ if __name__ == "__main__":
         export(keep,report,processedIndicators,processingReport)
 
 
+
         #print(db.getNumericalProperties('Airport'))
         #print(db.getRelationCardinality())
         #print(db.getValidProperties('Airport'))
@@ -290,3 +301,4 @@ if __name__ == "__main__":
         #db.getDegreeOfRelationForLabel('Airport')
 
         #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
+    """
