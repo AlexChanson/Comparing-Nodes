@@ -150,7 +150,7 @@ def aggregate_m2m_properties_for_label(
     """
     with driver.session() as session:
         reltypes = list(only_reltypes) if only_reltypes else find_many_to_many_reltypes(session, label)
-        print(reltypes)
+        #print(reltypes)
 
         # If no M2M reltypes, still return DF with node ids and no extra cols
         if not reltypes:

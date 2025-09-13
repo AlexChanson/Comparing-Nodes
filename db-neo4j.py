@@ -12,6 +12,7 @@ from typing import Optional
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
 from validation import process_dataframe, export
+from inDegrees import in_degree_by_relationship_type
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -262,31 +263,51 @@ class Neo4jConnector:
         print("Columns:", ", ".join(df.columns))
         return df
 
+    def getAvgPropByElem(self):
+        query=("CALL    {  MATCH(n)    WITH     n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN['INTEGER', 'FLOAT']] AS "
+             +  " numericProps)   RETURN    avg(size(numericProps))    AS    avgNodeNumericProps    }"
+             +  "    CALL    {        MATCH() - [r] - ()    WITH    r, [k IN keys(r) WHERE apoc.meta.cypher.type(r[k]) IN['INTEGER', 'FLOAT']]"
+             +  " AS    numericProps    RETURN    avg(size(numericProps))    AS    avgRelNumericProps    }"
+             +  "    RETURN    avgNodeNumericProps, avgRelNumericProps;")
+        result = self.execute_query(query)
+        return result
 
 
 # Example usage:
 if __name__ == "__main__":
     # adjust URI/user/password as needed
-    with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
-        label="Movie"
-        #label="Airport"
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "uscongress") as db:
+    with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
+        #label="Movie"
+        #label="Legislator"
+        #label="Officer"
+        label="Airport"
 
+        # get context and candidate indicators
+        # get * relationships for label
         dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
-        #print(dfm2m)
 
-
+        # get 1 relationships for label (and save those to csv)
         out="sample_data/"+label+"_indicators.csv"
         df121=db.fetch_as_dataframe(out,label,10)
-        #print(df)
 
-        df = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out_id")
+        #out join * and 1
+        dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
+        # get in degrees of label
+        dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
+
+        # then outer join with dftemp
+        dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
+
+        #validates and transform (scale) candidate indicators
         null_threshold=0.5
         distinct_low=0.002
         distinct_high=0.96
 
-        keep,report=process_dataframe(df,null_threshold,distinct_low,distinct_high)
+        keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
 
         processedIndicators="sample_data/"+label+"_indicators_processed.csv"
         processingReport="reports/"+label+"_indicators_processed.csv"
