@@ -9,10 +9,13 @@ import argparse
 import pandas as pd
 from typing import Optional
 
+import utility
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
 from validation import process_dataframe, export
 from inDegrees import in_degree_by_relationship_type
+
+import time
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -285,6 +288,8 @@ if __name__ == "__main__":
         #label="Officer"
         label="Airport"
 
+        start_time = time.time()
+
         # get context and candidate indicators
         # get * relationships for label
         dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
@@ -313,7 +318,12 @@ if __name__ == "__main__":
         processingReport="reports/"+label+"_indicators_processed.csv"
         export(keep,report,processedIndicators,processingReport)
 
+        # if we remove lines with at least one null
+        utility.remove_rows_with_nulls(keep)
 
+        end_time = time.time()
+        timings = end_time - start_time
+        print('Completed in ', timings, 'seconds')
 
         #print(db.getNumericalProperties('Airport'))
         #print(db.getRelationCardinality())

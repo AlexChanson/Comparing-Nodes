@@ -409,6 +409,36 @@ def outer_join_features(df_left: pd.DataFrame,
     return M
 
 
+import pandas as pd
+
+
+def remove_rows_with_nulls(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes rows containing at least one null value from the DataFrame.
+    Prints statistics about the number of rows before and after cleaning.
+
+    Parameters:
+        df (pd.DataFrame): Input dataframe
+
+    Returns:
+        pd.DataFrame: DataFrame without rows containing null values
+    """
+    initial_rows = len(df)
+
+    # Drop rows with at least one null
+    cleaned_df = df.dropna()
+    remaining_rows = len(cleaned_df)
+    excluded_rows = initial_rows - remaining_rows
+    percentage_remaining = (remaining_rows / initial_rows * 100) if initial_rows > 0 else 0
+
+    print(f"Initial rows: {initial_rows}")
+    print(f"Excluded rows: {excluded_rows}")
+    print(f"Remaining rows: {remaining_rows} ({percentage_remaining:.2f}%)")
+
+    return cleaned_df
+
+
+
 # ---------- Example ----------
 if __name__ == "__main__":
     feats = {
