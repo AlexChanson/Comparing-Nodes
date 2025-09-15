@@ -288,6 +288,8 @@ if __name__ == "__main__":
         #label="Officer"
         label="Airport"
 
+        NONULLS=True
+
         start_time = time.time()
 
         # get context and candidate indicators
@@ -316,10 +318,14 @@ if __name__ == "__main__":
 
         processedIndicators="sample_data/"+label+"_indicators_processed.csv"
         processingReport="reports/"+label+"_indicators_processed.csv"
-        export(keep,report,processedIndicators,processingReport)
 
         # if we remove lines with at least one null
-        utility.remove_rows_with_nulls(keep)
+        if NONULLS:
+            keep=utility.remove_rows_with_nulls(keep)
+            processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+
+        export(keep,report,processedIndicators,processingReport)
+
 
         end_time = time.time()
         timings = end_time - start_time
