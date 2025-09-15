@@ -279,13 +279,17 @@ class Neo4jConnector:
 # Example usage:
 if __name__ == "__main__":
     # adjust URI/user/password as needed
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
+    with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "uscongress") as db:
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
-    with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
-        #label="Movie"
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
+        label="Actor"
+        label="Movie"
+        label="Director"
         #label="Legislator"
-        label="Officer"
+        #label="Officer"
+        #label="Intermediary"
+        #label="Entity"
         #label="Airport"
 
         #True = remove lines with at least one null value

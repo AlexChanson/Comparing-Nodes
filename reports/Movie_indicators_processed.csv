@@ -7,6 +7,6 @@ Movie_budget,kept_scaled,,0.456,0.13336019339242547,float64
 Movie_runtime,kept_scaled,,0.006904109589041096,0.025380710659898477,float64
 RATED__rel__sum_rating,kept_scaled,,0.006465753424657534,0.0729097727774101,float64
 RATED__rel__sum_timestamp,dropped,distinct_ratio>high,0.006465753424657534,0.9881976615927641,float64
-ACTED_IN,dropped,distinct_ratio<low,0.0,0.000547945205479452,int64
-DIRECTED,dropped,distinct_ratio<low,0.0,0.0017534246575342466,int64
+ACTED_IN,kept_scaled,,0.0,0.000547945205479452,int64
+DIRECTED,kept_scaled,,0.0,0.0017534246575342466,int64
 RATED,kept_scaled,,0.0,0.020383561643835615,int64
