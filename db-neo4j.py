@@ -281,13 +281,14 @@ if __name__ == "__main__":
     # adjust URI/user/password as needed
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "uscongress") as db:
-    with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
+    with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
         #label="Movie"
         #label="Legislator"
-        #label="Officer"
-        label="Airport"
+        label="Officer"
+        #label="Airport"
 
+        #True = remove lines with at least one null value
         NONULLS=True
 
         start_time = time.time()
@@ -311,7 +312,7 @@ if __name__ == "__main__":
 
         #validates and transform (scale) candidate indicators
         null_threshold=0.5
-        distinct_low=0.002
+        distinct_low=0.000001
         distinct_high=0.96
 
         keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)

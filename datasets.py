@@ -1,6 +1,11 @@
 import numpy as np
 from sklearn import preprocessing
 
+
+def load_icij(path="sample_data/Officer_indicators_processed_nonulls.csv"):
+    # TODO
+    return True
+
 def load_iris(path="./sample_data/iris.csv"):
     features = []
     nodes = []
