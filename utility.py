@@ -340,18 +340,14 @@ def derive_comparison_mask(mask):
     return np.asarray(mask) == 1
 
 
-def max_from_tree(node):
-    if node.is_leaf():
-        return node.obj, node.sol
-    else:
-        res = [max_from_tree(c) for c in node.children]
-        res.append((node.obj, node.sol))
-        v, s = res[0]
-        for val, sol in res[1:]:
-            if val > v:
-                v = val
-                s = sol
-        return v, s
+def best_from_tree(nodes : dict):
+    best = None
+    best_score = -np.inf
+    for node in nodes.values():
+        if node.obj > best_score:
+            best = node
+            best_score = node.obj
+    return best
 
 
 def bi_obj_check(root, data):

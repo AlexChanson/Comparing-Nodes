@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
-from numba import njit, jit, objmode, types
+from numba import njit, jit, objmode, types, prange
 import math
 from numba.typed import List
 
@@ -138,7 +138,7 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         print("Warning: convergence")
     return arithmetic_mean.argmax(axis=0)
 
-@njit()
+@njit(parallel=True)
 def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
     n_samples = X.shape[0]
 
@@ -158,7 +158,7 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
 
         dists = np.zeros((k, n_samples), np.float64)
         for j in range(k):# for each cluster
-            for i in range(n_samples):
+            for i in prange(n_samples):
                 a = 0.0
                 for dim in range(X.shape[1]):
                     a += (X[centroids[j], dim] - X[i, dim])**2 # good when small
@@ -174,7 +174,7 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         dists = 1 / (1 + np.exp(-dists))
 
         for j in range(k):
-            for i in range(n_samples):
+            for i in prange(n_samples):
                 if i == centroids[j]:
                     U[j, i] = 1.0
                 else:
@@ -182,7 +182,8 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
                     for l in range(k):
                         s1 += (dists[j, i] / dists[l, i]) ** exponent
                     U[j, i] = 1.0 / s1
-        U /= U.sum(axis=0)
+        #print("debug")
+        U /= U.sum(axis=0).reshape(1, U.shape[1])
         for cl, centroid in np.ndenumerate(centroids):
             for line in range(k):
                 if cl[0] != line:
@@ -199,7 +200,7 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
             for c_idx, c in enumerate(candidates):
                 if used[c]:
                     continue
-                for i in range(n_samples):
+                for i in prange(n_samples):
                     a = 0.0
                     for dim in range(X.shape[1]):
                         a += (X[c, dim] - X[i, dim]) ** 2  # good when small
@@ -224,8 +225,6 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
             conv_check = True
             break
 
-    if not conv_check:
-        print("Warning: convergence")
     return np.argmax(U, axis=0)
 
 

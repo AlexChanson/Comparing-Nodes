@@ -1,8 +1,9 @@
-from datasets import load_iris, normalize
+from datasets import load_iris, normalize, load_airports
 from b_and_b import *
 from clustering import *
 from utility import *
 
+from multiprocessing import Pool
 from copy import copy
 import numpy as np
 from numpy.typing import NDArray
@@ -37,13 +38,12 @@ def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method
     return membership
 
 
+def signature(l : list[int]):
+    return "".join(map(str, l))
 
 # you have to pass node_map = dict() when calling
-def bnb(node : Node, node_map : dict[Node], **params):
-    def signature(l : list[int]):
-        return "".join(map(str, l))
-
-    if not node.is_leaf():
+def bnb(node : Node, node_map : dict[Node], max_depth, **params):
+    if not (node.is_leaf() or node.depth == max_depth):
         for idx, a in enumerate(node.mask()):
             if a == 0:
                 # check for symmetry
@@ -72,46 +72,54 @@ def bnb(node : Node, node_map : dict[Node], **params):
                         child.obj = float("-inf")
                         if not child.is_leaf():# skip unfeasible leaf
                             node_map[child.signature()] = child  #Save node in the hash map
-                            bnb(child, node_map, **params)
+                            bnb(child, node_map, max_depth, **params)
                         else:
-                            node.prune_child(child)
+                            pass #node.prune_child(child)
                     else:
                         child.membership = solve_node(child.mask(), data, k, **params)
                         child.obj = child.eval_obj(data)
                         node_map[child.signature()] = child #Save node in the hash map
-                        bnb(child, node_map, **params)
+                        bnb(child, node_map, max_depth, **params)
 
 
-# Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
-if __name__ == '__main__':
-    features, data = load_iris()
-    data = normalize(data)
-
-    k = 3
-    mtd = "fcm2"
-    DISPLAY = False
-
+def heur_exp(data, features, k, mtd, max_depth, **params):
     root = Node().build_root(features)
 
-    nodes : dict[Node] = {}
-    bnb(root, nodes, method=mtd)
+    nodes: dict[Node] = {}
+    bnb(root, nodes, method=mtd, max_depth=max_depth, **params)
 
-    #pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data),
-    #                     orientation=PrettyPrintTree.Horizontal)
+    #pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data), orientation=PrettyPrintTree.Horizontal)
     #pt(root)
 
-    print(max_from_tree(root))
+    sol = best_from_tree(nodes)
 
-    h_assignement = analyze_features(data, maxClustFeat=min(5, len(features)-1))
+    #if DISPLAY:
+    #    from matplotlib import pyplot as plt
+    #    sols, x, y = bi_obj_check(root, data)
+    #    plt.scatter(x, y)
+    #    plt.xlabel("Comparison score")
+    #    plt.ylabel("Clustering (variance, lower is better)")
+    #    plt.title(f"Heuristic={mtd}, k={k}")
+    #    plt.show()
 
-    h_sol = list(map(lambda x : x['category'], h_assignement))
-    m = {'unused':0, "clustering":-1, "comparison":1}
-    h_sol = list(map(lambda x : m[x], h_sol))
+    print("[Heuristic] Exponential finished with solution:", sol)
+    return sol
+
+def heur_express(data, features, k, mtd):
+    h_assignement = analyze_features(data, maxClustFeat=min(5, len(features) - 1))
+
+    h_sol = list(map(lambda x: x['category'], h_assignement))
+    m = {'unused': 0, "clustering": -1, "comparison": 1}
+    h_sol = list(map(lambda x: m[x], h_sol))
     membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
-    n = Node().from_starting(h_sol, membership, si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol), membership))
-    print(n)
+    n = Node().from_starting(h_sol, membership,
+                             si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
+                                    membership))
+    print("[Heuristic] Express finished with solution:", n)
+    return n
 
-    n_steps = 5
+def heur_local_search(data, features, k, mtd, start, n_steps=5):
+    n = start
     while n_steps > 0:
         print("[Local search] Step", n_steps)
         possible = []
@@ -130,6 +138,7 @@ if __name__ == '__main__':
                 s.membership = solve_node(s.mask(), data, k, method=mtd, max_iters=200)
                 s.obj = s.eval_obj(data)
                 possible.append(s)
+
         best_node = possible[0]
         best_obj = possible[0].obj
 
@@ -143,15 +152,22 @@ if __name__ == '__main__':
             break
         n = best_node
         n_steps -= 1
+    print("[Heuristic] Local Search finished with solution:", n)
+    return n
 
-    print(n)
+# Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
+if __name__ == '__main__':
+    features, data = load_iris()
+    data = normalize(data)
+
+    k = 3
+    mtd = "fcm2"
+    DISPLAY = False
+
+    sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
+    sol_patrick = heur_express(data, features, k, mtd=mtd)
+    sol_ls = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
 
 
-    if DISPLAY:
-        from matplotlib import pyplot as plt
-        sols, x, y = bi_obj_check(root, data)
-        plt.scatter(x, y)
-        plt.xlabel("Comparison score")
-        plt.ylabel("Clustering (variance, lower is better)")
-        plt.title(f"Heuristic={mtd}, k={k}")
-        plt.show()
+
+

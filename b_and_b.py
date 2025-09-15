@@ -1,17 +1,32 @@
 from copy import copy
 from utility import *
 from numpy.typing import NDArray
-from numba import jit, njit
+from numba import jit, njit, types
+from numba.experimental import jitclass
+from numba.types import Optional
+from numba.typed import List
 
+node_type = types.DeferredType()
+
+spec = [
+    ('sol', types.ListType(types.int64)),        # list[int]
+    ('depth', types.int64),                      # int
+    ('parent', Optional(node_type)),             # Node | None
+    ('membership', types.ListType(types.int64)), # list[int]
+    ('root', types.boolean),                     # bool
+    ('obj', types.float64),                      # float
+]
+
+
+#@jitclass()
 class Node:
     def __init__(self):
-        self.sol : list[int] = None
+        self.sol : list[int] = []
         self.depth : int = 0
-        self.children : list[Node] = []
-        self.membership : list[int] = None
+        self.parent : Node = None
+        self.membership : list[int] = []
         self.root : bool = False
         self.obj : float = float('nan')
-        self.clustering_used = None
 
     def build_root(self, indicators):
         if len(indicators) < 2:
@@ -31,7 +46,7 @@ class Node:
             raise ValueError("Indicator already assigned")
         n = self.__copy()
         n.depth += 1
-        self.children.append(n)
+        n.parent = self
         if assignment.startswith("cl"):
             n.sol[indicator] = -1
         elif assignment.startswith("co"):
@@ -43,7 +58,7 @@ class Node:
     def swap(self, indicator:int):
         n = self.__copy()
         n.depth += 1
-        self.children.append(n)
+        self.parent = self
         if self.sol[indicator] == 1:
             n.sol[indicator] = -1
             return n
@@ -67,9 +82,6 @@ class Node:
 
     def derive_clustering_mask(self):
         return np.asarray(self.sol) == -1
-
-    def prune_child(self, child):
-        self.children.remove(child)
 
     def derive_comparison_mask(self):
         return np.asarray(self.sol) == 1
@@ -114,7 +126,11 @@ class Node:
         return float(s1), float(s2)
 
     def __str__(self):
-        return str(str(self.sol) + " | " + str(self.obj))
+        return str(str(self.sol).replace(", ", ";") + " | " + str(self.obj))
+
+
+#node_type.define(Node.class_type.instance_type)
+
 
 @njit
 def _bi_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
