@@ -350,11 +350,11 @@ RETURN
 
         result = self.execute_query(query)
         #return result
-        return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one']
+        return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one'],[rec['relType'] for rec in result if rec['cardinality']=='many-to-many']
 
-    def build_cypher_nodes(self, label: str, max_depth: Optional[int]) -> str:
+    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one) -> str:
         """
-        WARNING not on schema
+        warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
         Traverses only along steps where the current node has exactly one outgoing
         relationship of that type (functional chain).
@@ -371,7 +371,7 @@ RETURN
         OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
         WHERE
           all(rel IN relationships(p) WHERE
-              apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
+              type(rel) in {many2one})
         WITH n, collect(DISTINCT m) + n AS nodes
         WITH n,
              [x IN nodes |
@@ -390,9 +390,9 @@ RETURN
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def build_cypher_edges(self, label: str, max_depth: Optional[int]) -> str:
+    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one) -> str:
         """
-        WARNING not on schema
+        warning, initially  not on schema, was : all(rel ... where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
         Traverses only along steps where the current node has exactly one outgoing
         relationship of that type (functional chain).
@@ -409,7 +409,7 @@ RETURN
         OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
         WHERE
           all(rel IN relationships(p) WHERE
-              apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
+               type(rel) in {many2one})
         WITH n,
             // Gather all relationships from all such paths, then deduplicate
         apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
@@ -434,15 +434,15 @@ RETURN
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int]) -> pd.DataFrame:
+    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one) -> pd.DataFrame:
         #cypher = self.build_cypher(label, max_depth)
         #driver = GraphDatabase.driver(uri, auth=(user, password))
         #try:
         #    with driver.session() as session:
         #result = session.run(cypher)
-        query=self.build_cypher_nodes(label, max_depth)
+        query=self.build_cypher_nodes(label, max_depth,many2one)
         result=self.execute_query(query)
-        query_edge = self.build_cypher_edges(label, max_depth)
+        query_edge = self.build_cypher_edges(label, max_depth,many2one)
         result_edges = self.execute_query(query_edge)
         result=result+result_edges
         rows = []
@@ -485,13 +485,14 @@ if __name__ == "__main__":
         #label="Entity"
         label="Airport"
 
-        # finds relationship cardinalities
-        print(db.detect_relationship_cardinalities())
 
         #True = remove lines with at least one null value
         NONULLS=True
 
         start_time = time.time()
+
+        # finds relationship cardinalities
+        manyToOne,manyToMany = db.detect_relationship_cardinalities()
 
         # get context and candidate indicators
         # get * relationships for label
@@ -499,7 +500,7 @@ if __name__ == "__main__":
 
         # get 1 relationships for label (and save those to csv)
         out="sample_data/"+label+"_indicators.csv"
-        df121=db.fetch_as_dataframe(out,label,10)
+        df121=db.fetch_as_dataframe(out,label,10,manyToOne)
 
         #out join * and 1
         dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
