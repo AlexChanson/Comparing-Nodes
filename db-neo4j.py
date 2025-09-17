@@ -7,7 +7,6 @@ from scipy.stats import variation
 
 import argparse
 import pandas as pd
-from typing import Optional
 
 import utility
 from many2many import aggregate_m2m_properties_for_label
@@ -16,6 +15,8 @@ from validation import process_dataframe, export
 from inDegrees import in_degree_by_relationship_type
 
 import time
+
+from typing import List, Dict, Optional
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -207,8 +208,153 @@ class Neo4jConnector:
         """Escape backticks in a label so it can be safely backticked in Cypher."""
         return label.replace("`", "``")
 
-    def build_cypher(self, label: str, max_depth: Optional[int]) -> str:
+    def build_cypher_bad(self, label: str, max_depth: Optional[int]) -> str:
+        lbl = self.backtick_escape(label)
+        depth = "" if max_depth is None else str(int(max_depth))
+
+        return f"""
+    // Numeric props from nodes + rels along functional (unique-outgoing) paths,
+    // with path-based prefixes. 
+    MATCH (n:{lbl})
+    WITH n, head(labels(n)) AS rootLabel
+
+    OPTIONAL MATCH p = (n)-[*0..]->(m)
+    WHERE
+    // only traverse unique-outgoing (functional) hops
+    all(rel IN relationships(p)
+    WHERE apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
+    // avoid revisiting nodes/edges
+    AND size(relationships(p)) = size(apoc.coll.toSet(relationships(p)))
+    AND size(nodes(p))        = size(apoc.coll.toSet(nodes(p)))
+
+    WITH n, rootLabel, p, nodes(p) AS ns, relationships(p) AS rs, last(nodes(p)) AS m
+
+    // Build prefix for END NODE of this path: City__REL1__Label2__REL2__Label3
+    WITH n, rootLabel, ns, rs, m,
+     reduce(pref = rootLabel,
+            i IN (CASE WHEN size(rs)=0 THEN [] ELSE range(0, size(rs)-1) END) |
+              pref + '__' + apoc.rel.type(rs[i]) + '__' + head(labels(ns[i+1]))
+     ) AS nodePrefix
+
+    // Map of numeric properties for the end node (prefixed by the full path)
+    WITH n, rootLabel, ns, rs,
+     apoc.map.fromPairs(
+       [k IN keys(m)
+        WHERE apoc.meta.cypher.type(m[k]) IN ['INTEGER','FLOAT','Number','Long','Double']
+        | [nodePrefix + '_' + k, m[k]]
+       ]
+     ) AS nodeMap,
+     ns AS ns_keep, rs AS rs_keep
+
+// Build maps for EACH relationship's numeric properties along this path
+WITH n, rootLabel, ns_keep AS ns, rs_keep AS rs, [nodeMap] AS collected
+UNWIND (CASE WHEN size(rs)=0 THEN [] ELSE range(0, size(rs)-1) END) AS j
+WITH n, rootLabel, ns, rs, collected,
+     apoc.map.fromPairs(
+       [k IN keys(rs[j])
+        WHERE apoc.meta.cypher.type(rs[j][k]) IN ['INTEGER','FLOAT','Number','Long','Double']
+        |
+          // Prefix up to and including the j-th relationship:
+          // City__REL1__Label2__...__RELj_prop
+          [ reduce(pref = rootLabel,
+                   i IN (CASE WHEN j=0 THEN [] ELSE range(0, j-1) END) |
+                     pref + '__' + apoc.rel.type(rs[i]) + '__' + head(labels(ns[i+1]))
+            ) + '__' + apoc.rel.type(rs[j]) + '_' + k,
+            rs[j][k]
+          ]
+       ]
+     ) AS relMap
+
+// ---- separate aggregation from combination to avoid implicit-grouping error
+WITH n, collected, collect(relMap) AS relMaps
+WITH n, collected + relMaps AS mapsPerPath
+
+// Now combine all paths for the same root node n
+WITH n, collect(mapsPerPath) AS mapsPerPathList
+WITH n, apoc.coll.flatten(mapsPerPathList) AS allMaps
+RETURN
+  id(n) AS rootId,
+  apoc.map.mergeList(allMaps) AS mergedNumericProperties;
+    """
+
+
+
+    def detect_relationship_cardinalities(self):
         """
+        Detects instance-based relationship cardinalities (one-to-one, one-to-many,
+        many-to-one, many-to-many) per (relType, startLabelSet, endLabelSet).
+
+        Args:
+            driver: An open neo4j.Driver instance (Neo4j Python driver v4/v5).
+            database: Optional database name (Neo4j Enterprise / multi-db).
+            use_primary_label: If True, classify by head(labels(n)) instead of the full label set.
+
+        Returns:
+            List of dict rows with keys:
+            ['relType','startLabels','endLabels','startPopulation','endPopulation',
+             'minOut','maxOut','minIn','maxIn','cardinality']
+        """
+        query = """
+        // Detect instance-based cardinalities: one-to-one, one-to-many, many-to-one, many-to-many
+        MATCH (s)-[r]->(t)
+        WITH type(r) AS relType,
+             apoc.text.join(labels(s),'|')  AS startLabels,
+             apoc.text.join(labels(t),'|')  AS endLabels
+        WITH DISTINCT relType, startLabels, endLabels
+
+        // For ALL start nodes with this label set, count outgoing edges of relType to endLabels
+        CALL {
+          WITH relType, startLabels, endLabels
+          MATCH (sx)
+          WHERE apoc.text.join(labels(sx),'|')  = startLabels
+          OPTIONAL MATCH (sx)-[rx]->(tx)
+          WHERE type(rx) = relType
+            AND apoc.text.join(labels(tx),'|')  = endLabels
+          WITH sx, count(rx) AS outCnt
+          RETURN
+            min(outCnt) AS minOut,
+            max(outCnt) AS maxOut,
+            count(sx)   AS startPopulation
+        }
+
+        // For ALL end nodes with this label set, count incoming edges of relType from startLabels
+        CALL {
+          WITH relType, startLabels, endLabels
+          MATCH (ty)
+          WHERE apoc.text.join(labels(ty),'|')  = endLabels
+          OPTIONAL MATCH (sy)-[ry]->(ty)
+          WHERE type(ry) = relType
+            AND apoc.text.join(labels(sy),'|')  = startLabels
+          WITH ty, count(ry) AS inCnt
+          RETURN
+            min(inCnt) AS minIn,
+            max(inCnt) AS maxIn,
+            count(ty)  AS endPopulation
+        }
+
+        RETURN
+          relType,
+          startLabels,
+          endLabels,
+          startPopulation,
+          endPopulation,
+          minOut, maxOut, minIn, maxIn,
+          CASE
+            WHEN minOut >= 1 AND maxOut <= 1 AND minIn >= 1 AND maxIn <= 1 THEN 'one-to-one'
+            WHEN minOut >= 0 AND maxIn <= 1 THEN 'one-to-many'
+            WHEN maxOut <= 1 AND minIn >= 0 THEN 'many-to-one'
+            ELSE 'many-to-many'
+          END AS cardinality
+        ORDER BY relType, startLabels, endLabels
+        """
+
+        result = self.execute_query(query)
+        #return result
+        return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one']
+
+    def build_cypher_nodes(self, label: str, max_depth: Optional[int]) -> str:
+        """
+        WARNING not on schema
         Build the Cypher query by inlining the label (labels can't be parameterized).
         Traverses only along steps where the current node has exactly one outgoing
         relationship of that type (functional chain).
@@ -244,14 +390,61 @@ class Neo4jConnector:
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
+    def build_cypher_edges(self, label: str, max_depth: Optional[int]) -> str:
+        """
+        WARNING not on schema
+        Build the Cypher query by inlining the label (labels can't be parameterized).
+        Traverses only along steps where the current node has exactly one outgoing
+        relationship of that type (functional chain).
+        Keeps ONLY numeric properties via apoc.meta.cypher.type.
+        """
+        lbl = self.backtick_escape(label)
+        depth = "" if max_depth is None else str(int(max_depth))
+
+        # Note:
+        # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
+        # - Properties are prefixed with the node's (first) label to avoid collisions.
+        return f"""
+        MATCH (n:`{lbl}`)
+        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+        WHERE
+          all(rel IN relationships(p) WHERE
+              apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
+        WITH n,
+            // Gather all relationships from all such paths, then deduplicate
+        apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+        WITH n,
+             // Build one small map per relationship, keeping only numeric props.
+            // Keys are prefixed with the relationship type to reduce collisions.
+        [r IN rels |
+        apoc.map.fromPairs(
+          [k IN keys(r)
+             WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+             | [type(r) + "_" + k, r[k]]
+          ]
+        )
+        ] AS maps
+        WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+        WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
+        RETURN id(n) AS rootId,
+       mergedNumericProperties;
+        """
+        # If you want numeric lists as well, replace the WHERE line by:
+        # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
+        #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
+        #                                       "LIST OF Long","LIST OF Double"]
+
     def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int]) -> pd.DataFrame:
         #cypher = self.build_cypher(label, max_depth)
         #driver = GraphDatabase.driver(uri, auth=(user, password))
         #try:
         #    with driver.session() as session:
         #result = session.run(cypher)
-        query=self.build_cypher(label, max_depth)
+        query=self.build_cypher_nodes(label, max_depth)
         result=self.execute_query(query)
+        query_edge = self.build_cypher_edges(label, max_depth)
+        result_edges = self.execute_query(query_edge)
+        result=result+result_edges
         rows = []
         for rec in result:
             root_id = rec["rootId"]
@@ -279,18 +472,21 @@ class Neo4jConnector:
 # Example usage:
 if __name__ == "__main__":
     # adjust URI/user/password as needed
-    with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
+    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "uscongress") as db:
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
+    with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
     #with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
-        label="Actor"
-        label="Movie"
-        label="Director"
+        #label="Actor"
+        #label="Movie"
+        #label="Director"
         #label="Legislator"
         #label="Officer"
         #label="Intermediary"
         #label="Entity"
-        #label="Airport"
+        label="Airport"
+
+        # finds relationship cardinalities
+        print(db.detect_relationship_cardinalities())
 
         #True = remove lines with at least one null value
         NONULLS=True
