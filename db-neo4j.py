@@ -11,7 +11,7 @@ import pandas as pd
 import utility
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
-from validation import process_dataframe, export
+from validation import process_dataframe, export, remove_correlated_columns
 from inDegrees import in_degree_by_relationship_type
 
 import time
@@ -515,7 +515,11 @@ if __name__ == "__main__":
         null_threshold=0.5
         distinct_low=0.000001
         distinct_high=0.96
+        correlation_threshold=0.95
 
+        # first remove correlated columns
+        dffinal=remove_correlated_columns(dffinal,correlation_threshold)
+        # then check for variance and nulls
         keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
 
         processedIndicators="sample_data/"+label+"_indicators_processed.csv"
@@ -525,6 +529,7 @@ if __name__ == "__main__":
         if NONULLS:
             keep=utility.remove_rows_with_nulls(keep)
             processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+
 
         export(keep,report,processedIndicators,processingReport)
 

@@ -180,6 +180,62 @@ def process_dataframe(
 
     return keep_df, report_df
 
+
+
+def remove_correlated_columns(df, threshold=0.8):
+    """
+    Removes columns that are highly correlated with others.
+    Keeps the first column (assumed to be an identifier).
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input dataframe, first column is assumed to be identifiers.
+    threshold : float, optional
+        Correlation threshold above which a column is dropped (default 0.8).
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with identifier column and selected non-redundant columns.
+    """
+    # Separate ID column
+    id_col = df.columns[0]
+    features = df.iloc[:, 1:]
+
+    # Compute correlation matrix
+    corr_matrix = features.corr(method='pearson').abs()
+
+    # Track columns to drop
+    to_drop = set()
+
+    # Iterate through upper triangle of the matrix
+    for i in range(len(corr_matrix.columns)):
+        if corr_matrix.columns[i] in to_drop:
+            continue
+        for j in range(i + 1, len(corr_matrix.columns)):
+            if corr_matrix.iloc[i, j] > threshold:
+                to_drop.add(corr_matrix.columns[j])
+
+    # Keep identifier + non-dropped feature columns
+    kept_columns = [id_col] + [col for col in features.columns if col not in to_drop]
+
+    # ---- Summary ----
+    n_initial = features.shape[1]
+    n_dropped = len(to_drop)
+    n_kept = n_initial - n_dropped
+
+    print("Checking for correlated columns")
+    print(f"Initial number of  columns: {n_initial}")
+    print(f"Number of dropped columns: {n_dropped}")
+    if n_dropped > 0:
+        print(f"Dropped columns: {sorted(list(to_drop))}")
+    print(f"Number of kept columns: {n_kept}")
+
+    return df[kept_columns]
+
+
+
 def export(processed_df,report_df,output,report):
         try:
             processed_df.to_csv(output, index=False)
@@ -241,3 +297,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
