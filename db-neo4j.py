@@ -495,8 +495,9 @@ if __name__ == "__main__":
     #label=dict_databases_labels["airports"][0]
 
     for password in dict_databases_labels.keys():
+        print("database: ", password)
 
-        for label in dict_databases_labels["airports"]:
+        for label in dict_databases_labels[password]:
             print("Label: ",label)
 
             with Neo4jConnector(uri, user, password) as db:
