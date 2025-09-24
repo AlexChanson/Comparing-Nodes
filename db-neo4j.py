@@ -19,6 +19,8 @@ import time
 
 from typing import List, Dict, Optional
 
+from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
+
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
         "INTEGER", "FLOAT", "Number", "Long", "Double"
@@ -478,9 +480,15 @@ if __name__ == "__main__":
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
     dict_databases_labels={"airports":["Airport","Country"],
-                           "icijleaks":["Officer","Intermediary","Entity"],
+                           "icijleaks":["Intermediary","Entity"],
                            "recommendation":["Actor","Movie"]
                            }
+    #dict_databases_labels = {"airports": ["Airport", "Country"]
+    #                         }
+    #dict_databases_labels = {"icijleaks":["Officer","Intermediary","Entity"]}
+    dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
+                          "recommendation":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
+                          "icijleaks":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179"}
 
     # validates and transform (scale) candidate indicators
     null_threshold = 0.5
@@ -497,8 +505,13 @@ if __name__ == "__main__":
     for password in dict_databases_labels.keys():
         print("database: ", password)
 
+        stop_current_dbms()
+        dbspec = DbSpec(password, dict_databases_homes[password], uri, user, password)
+        start_dbms(dbspec)
+
         for label in dict_databases_labels[password]:
             print("Label: ",label)
+
 
             with Neo4jConnector(uri, user, password) as db:
 
@@ -562,3 +575,5 @@ if __name__ == "__main__":
                 #db.getDegreeOfRelationForLabel('Airport')
 
                 #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
+
+        stop_dbms(dbspec)
