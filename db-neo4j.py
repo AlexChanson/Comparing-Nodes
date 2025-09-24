@@ -13,6 +13,7 @@ from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
 from validation import process_dataframe, export, remove_correlated_columns
 from inDegrees import in_degree_by_relationship_type
+import distanceFromLabel
 
 import time
 
@@ -471,81 +472,92 @@ RETURN
 
 # Example usage:
 if __name__ == "__main__":
-    # adjust URI/user/password as needed
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "recommendations") as db:
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "uscongress") as db:
-    with Neo4jConnector("bolt://localhost:7687", "neo4j", "airports") as db:
-    #with Neo4jConnector("bolt://localhost:7687", "neo4j", "icijleaks") as db:
-        #label="Actor"
-        #label="Movie"
-        #label="Director"
-        #label="Legislator"
-        #label="Officer"
-        #label="Intermediary"
-        #label="Entity"
-        label="Airport"
+    #  URI/user/password
+    uri="bolt://localhost:7687"
+    user="neo4j"
+    password="airports"
+    tab_databases=["airports","icijleaks","recommendations"]
+    dict_databases_labels={"airports":["Airport","Country"],
+                           "icijleaks":["Officer","Intermediary","Entity"],
+                           "recommendation":["Actor","Movie"]
+                           }
+
+    # validates and transform (scale) candidate indicators
+    null_threshold = 0.5
+    distinct_low = 0.000001
+    distinct_high = 0.96
+    correlation_threshold = 0.95
+
+    # True = remove lines with at least one null value
+    NONULLS = True
+
+    #label
+    #label=dict_databases_labels["airports"][0]
+
+    for password in dict_databases_labels.keys():
+
+        for label in dict_databases_labels["airports"]:
+            print("Label: ",label)
+
+            with Neo4jConnector(uri, user, password) as db:
+
+                # for contextualization - work in progress
+                #df = distanceFromLabel.schema_distances_from_label(db.getDriver().session(), label)
+                #print(df.to_string(index=False))
 
 
-        #True = remove lines with at least one null value
-        NONULLS=True
+                start_time = time.time()
 
-        start_time = time.time()
+                # finds relationship cardinalities
+                manyToOne,manyToMany = db.detect_relationship_cardinalities()
 
-        # finds relationship cardinalities
-        manyToOne,manyToMany = db.detect_relationship_cardinalities()
+                # get context and candidate indicators
+                # get * relationships for label
+                dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
 
-        # get context and candidate indicators
-        # get * relationships for label
-        dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
+                # get 1 relationships for label (and save those to csv)
+                out="sample_data/"+label+"_indicators.csv"
+                df121=db.fetch_as_dataframe(out,label,10,manyToOne)
 
-        # get 1 relationships for label (and save those to csv)
-        out="sample_data/"+label+"_indicators.csv"
-        df121=db.fetch_as_dataframe(out,label,10,manyToOne)
+                #out join * and 1
+                dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
-        #out join * and 1
-        dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
+                # get in degrees of label
+                dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
 
-        # get in degrees of label
-        dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
-
-        # then outer join with dftemp
-        dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
-
-        #validates and transform (scale) candidate indicators
-        null_threshold=0.5
-        distinct_low=0.000001
-        distinct_high=0.96
-        correlation_threshold=0.95
-
-        # first remove correlated columns
-        dffinal=remove_correlated_columns(dffinal,correlation_threshold)
-        # then check for variance and nulls
-        keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
-
-        processedIndicators="sample_data/"+label+"_indicators_processed.csv"
-        processingReport="reports/"+label+"_indicators_processed.csv"
-
-        # if we remove lines with at least one null
-        if NONULLS:
-            keep=utility.remove_rows_with_nulls(keep)
-            processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+                # then outer join with dftemp
+                dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
 
 
-        export(keep,report,processedIndicators,processingReport)
+                # first remove correlated columns
+                dffinal=remove_correlated_columns(dffinal,correlation_threshold)
+                # then check for variance and nulls
+                keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
+
+                processedIndicators="sample_data/"+label+"_indicators_processed.csv"
+                processingReport="reports/"+label+"_indicators_processed.csv"
+
+                # if we remove lines with at least one null
+                if NONULLS:
+                    keep=utility.remove_rows_with_nulls(keep)
+                    processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
 
 
-        end_time = time.time()
-        timings = end_time - start_time
-        print('Completed in ', timings, 'seconds')
+                export(keep,report,processedIndicators,processingReport)
 
-        #print(db.getNumericalProperties('Airport'))
-        #print(db.getRelationCardinality())
-        #print(db.getValidProperties('Airport'))
 
-        #f,m = db.createDatasetForLabel('Airport')
-        #print(f)
-        #print(m)
+                end_time = time.time()
+                timings = end_time - start_time
+                print('Completed in ', timings, 'seconds')
 
-        #db.getDegreeOfRelationForLabel('Airport')
+                #print(db.getNumericalProperties('Airport'))
+                #print(db.getRelationCardinality())
+                #print(db.getValidProperties('Airport'))
 
-        #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
+                #f,m = db.createDatasetForLabel('Airport')
+                #print(f)
+                #print(m)
+
+                #db.getDegreeOfRelationForLabel('Airport')
+
+                #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
