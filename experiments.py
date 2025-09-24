@@ -51,5 +51,7 @@ if __name__ == '__main__':
         for c in configs:
             print(c, file=out)
 
-    with Pool(threads) as pool:
-        print(pool.map(run_exp, configs))
+    #with Pool(threads) as pool:
+       # print(pool.map(run_exp, configs))
+    for c in configs:
+        print(run_exp(c))
