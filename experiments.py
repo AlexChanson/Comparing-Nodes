@@ -25,7 +25,7 @@ def run_exp(conf):
     with open(path_str, mode="w", buffering=1) as out:  # line-buffered
         print(conf, file=out, flush=True)
         with Popen(
-            [python_bin, script_path, "--dataset", conf[0], "-h", conf[1], "-k", str(conf[2])],
+            [python_bin, script_path, "--dataset", conf[0], "--method", conf[1], "-k", str(conf[2])],
             stdout=out,
             stderr=out,      # merge stderr into the same log
             text=True        # get str, not bytes

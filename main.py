@@ -255,7 +255,7 @@ if __name__ == '__main__':
     parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
-    parser.add_argument("-h", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
+    parser.add_argument("-m", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
     args = parser.parse_args()
 
     if args.dataset == "iris":
