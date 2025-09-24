@@ -127,6 +127,8 @@ class Node:
 
     def __str__(self):
         return str(str(self.sol).replace(", ", ";") + " | " + str(self.obj))
+    def __repr__(self):
+        return str(str(self.sol).replace(", ", ";") + " | " + str(self.obj))
 
 
 #node_type.define(Node.class_type.instance_type)

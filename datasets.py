@@ -18,6 +18,11 @@ def load_iris(path="./sample_data/iris.csv"):
     print("LOADED IRIS")
     return features, np.asarray(nodes)
 
+#TODO
+def load_movies(path="./sample_data/movies.csv"):
+    features = []
+    pass
+
 def normalize(data):
     scaled = preprocessing.MinMaxScaler().fit_transform(data)
     return scaled

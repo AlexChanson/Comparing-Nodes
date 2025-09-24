@@ -139,7 +139,7 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
     return arithmetic_mean.argmax(axis=0)
 
 @njit(parallel=True)
-def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
+def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int, alpha=1.0):
     n_samples = X.shape[0]
 
     centroids = np.empty((k, ), dtype=np.int64)
@@ -171,7 +171,7 @@ def fcm_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
 
         U_old = U.copy()
 
-        dists = 1 / (1 + np.exp(-dists))
+        dists = 1 / (1 + np.exp(-alpha*dists))
 
         for j in range(k):
             for i in prange(n_samples):
