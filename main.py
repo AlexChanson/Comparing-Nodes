@@ -7,6 +7,10 @@ from multiprocessing import Pool
 from copy import copy
 import numpy as np
 from numpy.typing import NDArray
+import heapq
+from itertools import count
+import argparse
+
 from numba import njit
 #from PrettyPrint import PrettyPrintTree
 
@@ -31,7 +35,7 @@ def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method
     elif method == "fcm": #TODO should fuzzy parameter be thr same in both spaces ?
         membership = fcm_alex(X, X_comp, conv_criteria, k, m, max_iters)
     elif method == "fcm2":
-        membership = fcm_nico(X, X_comp, conv_criteria, k, m, max_iters)
+        membership = fcmd_nico(X, X_comp, conv_criteria, k, m, max_iters)
     else:
         raise NotImplementedError
 
@@ -42,6 +46,7 @@ def signature(l : list[int]):
     return "".join(map(str, l))
 
 # you have to pass node_map = dict() when calling
+#@jit()
 def bnb(node : Node, node_map : dict[Node], max_depth, **params):
     if not (node.is_leaf() or node.depth == max_depth):
         for idx, a in enumerate(node.mask()):
@@ -81,12 +86,88 @@ def bnb(node : Node, node_map : dict[Node], max_depth, **params):
                         node_map[child.signature()] = child #Save node in the hash map
                         bnb(child, node_map, max_depth, **params)
 
+#@jit()
+def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans"):
+    # Min-heap; we invert the priority for desired behavior.
+    # Order is "mostly irrelevant", but we still need a deterministic, stable order.
+    # Priority schema:
+    #   (-depth, tie)  => deeper nodes first (DFS-like) while still using a heap.
+    # You can swap to something like (-node.obj, ...) if you want best-first on obj.
+    heap = []
+    tie = count()
 
-def heur_exp(data, features, k, mtd, max_depth, **params):
+    def push(node: "Node"):
+        # base condition: do not push if node is leaf or depth limit reached
+        if node.is_leaf() or node.depth == max_depth:
+            return
+        # deeper-first (DFS-ish) while using a heap
+        heapq.heappush(heap, ((-node.depth), next(tie), node))
+
+    # Start from root (do not pre-compute membership/obj here, same as recursive entry)
+    push(root)
+
+    while heap:
+        _, _, node = heapq.heappop(heap)
+
+        # Base condition (mirrors the recursive guard at the top)
+        if node.is_leaf() or node.depth == max_depth:
+            continue
+
+        # Expand by iterating mask and branching where a == 0
+        for idx, a in enumerate(node.mask()):
+            if a != 0:
+                continue
+
+            to_branch = []
+
+            # cluster branch (set idx to -1)
+            cls = copy(node.sol)
+            cls[idx] = -1
+            if signature(cls) not in node_map:
+                to_branch.append(node.branch(idx, "cluster"))
+            else:
+                # Symmetric -> could link children if you maintain a children list
+                # node.children.append(node_map[signature(cls)])
+                pass
+
+            # comparison branch (set idx to 1)
+            cmp_ = copy(node.sol)
+            cmp_[idx] = 1
+            if signature(cmp_) not in node_map:
+                to_branch.append(node.branch(idx, "comparison"))
+            else:
+                # node.children.append(node_map[signature(cmp_)])
+                pass
+
+            # Process children exactly like the recursive function
+            for child in to_branch:
+                if not child.is_feasible():
+                    child.membership = None
+                    child.obj = float("-inf")
+
+                    if not child.is_leaf():
+                        # Save non-leaf unfeasible nodes and expand them later
+                        node_map[child.signature()] = child
+                        push(child)  # equivalent to: bnb(child, ...)
+                    else:
+                        # Skip unfeasible leaf (do NOT store in map)
+                        # node.prune_child(child) if you keep a children list
+                        pass
+                else:
+                    # Feasible: solve + evaluate, save, and expand if not at base condition
+                    child.membership = solve_node(child.mask(), data, k, method=method)
+                    child.obj = child.eval_obj(data)
+                    child.obj = child.eval_obj(data)
+
+                    node_map[child.signature()] = child
+                    push(child)  # recursion replaced by pushing if not base
+
+
+def heur_exp(data, features, k, mtd, max_depth):
     root = Node().build_root(features)
 
     nodes: dict[Node] = {}
-    bnb(root, nodes, method=mtd, max_depth=max_depth, **params)
+    bnb_iterative(root, nodes, method=mtd, max_depth=max_depth)
 
     #pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data), orientation=PrettyPrintTree.Horizontal)
     #pt(root)
@@ -116,6 +197,16 @@ def heur_express(data, features, k, mtd):
                              si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
                                     membership))
     print("[Heuristic] Express finished with solution:", n)
+    return n
+
+def heur_random(data, features, k, mtd):
+
+    h_sol = random_feasible(features)
+    membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
+    n = Node().from_starting(h_sol, membership,
+                             si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
+                                    membership))
+    print("[Heuristic] Random finished with solution:", n)
     return n
 
 def heur_local_search(data, features, k, mtd, start, n_steps=5):
@@ -152,21 +243,50 @@ def heur_local_search(data, features, k, mtd, start, n_steps=5):
             break
         n = best_node
         n_steps -= 1
-    print("[Heuristic] Local Search finished with solution:", n)
+    #print("[Heuristic] Local Search finished with solution:", n)
     return n
 
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
-    features, data = load_iris()
+    parser = argparse.ArgumentParser(
+        description="Please specify dataset name"
+    )
+
+    parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-k", "--k", default=3, help="Number of clusters")
+    parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
+    parser.add_argument("-m", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
+    args = parser.parse_args()
+
+    if args.dataset == "iris":
+        features, data = load_iris()
+    elif args.dataset == "airports":
+        features, data = load_airports()
+    elif args.dataset == "movies":
+        features, data = load_movies()
+
     data = normalize(data)
 
-    k = 3
+    k = args.k
     mtd = "fcm2"
     DISPLAY = False
 
-    sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
-    sol_patrick = heur_express(data, features, k, mtd=mtd)
-    sol_ls = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
+    if args.method == "ls":
+        sols = []
+        for start in range(5):
+            sol_rd = heur_random(data, features, k, mtd=mtd)
+            sols.append(heur_local_search(data, features, k, mtd=mtd, start=sol_rd))
+        sols = sorted(sols, key=lambda x: x.obj)
+        print("[Heuristic] Local Search finished with solutions:", sols)
+        print("[Heuristic] Local Search best solution:", sols[-1])
+
+    elif args.method == "exp":
+        sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
+
+    elif args.method == "smart-start":
+        sol_patrick = heur_express(data, features, k, mtd=mtd)
+        heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
+
 
 
 

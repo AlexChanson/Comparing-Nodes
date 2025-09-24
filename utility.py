@@ -3,6 +3,8 @@ from numba import njit
 from numba.core.inline_closurecall import length_of_iterator
 from scipy.stats import rankdata, describe
 import pandas as pd
+import random
+
 try:
     from diptest import diptest as _diptest_fn
     _HAS_DIP = True
@@ -348,6 +350,24 @@ def best_from_tree(nodes : dict):
             best = node
             best_score = node.obj
     return best
+
+
+def is_feasible(sol) -> bool:
+    for a in sol:
+        if a == 1:
+            for b in sol:
+                if b == -1:
+                    return True
+    return False
+
+def random_feasible(features):
+    feasible = False
+    sol = [0]*len(features)
+    while not feasible:
+        for i in range(len(features)):
+            sol[i] = random.choice([-1,0,1])
+        feasible = is_feasible(sol)
+    return sol
 
 
 def bi_obj_check(root, data):
