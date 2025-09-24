@@ -255,7 +255,7 @@ if __name__ == '__main__':
     parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
-    parser.add_argument("-m", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
+    parser.add_argument("-h", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
     args = parser.parse_args()
 
     if args.dataset == "iris":
@@ -278,14 +278,16 @@ if __name__ == '__main__':
             sols.append(heur_local_search(data, features, k, mtd=mtd, start=sol_rd))
         sols = sorted(sols, key=lambda x: x.obj)
         print("[Heuristic] Local Search finished with solutions:", sols)
-        print("[Heuristic] Local Search best solution:", sols[-1])
+        print("[best solution]:", sols[-1])
 
     elif args.method == "exp":
         sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
+        print("[best solution]:", sol_exp)
 
     elif args.method == "smart-start":
         sol_patrick = heur_express(data, features, k, mtd=mtd)
-        heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
+        sol_patrick = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
+        print("[best solution]:", sol_patrick)
 
 
 
