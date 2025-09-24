@@ -17,7 +17,7 @@ heuristics = ["ls", "smart-start"]
 
 
 def run_exp(conf):
-    path_str = "_".join(conf) + ".log"
+    path_str = "_".join(map(str, conf)) + ".log"
     if path.exists(path_str):
         print("Ignored", conf)
         return
