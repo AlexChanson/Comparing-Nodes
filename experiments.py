@@ -23,7 +23,7 @@ def run_exp(conf):
         return
     with open(path_str, mode="w") as out:
         print(conf)
-        with Popen([python_bin, script_path, "--dataset", conf[0], "-h", conf[1], "-k", conf[2]], stdout=out, stderr=PIPE) as process:
+        with Popen([python_bin, script_path, "--dataset", conf[0], "-h", conf[1], "-k", str(conf[2])], stdout=out, stderr=PIPE) as process:
             output = process.communicate()[0].decode("utf-8")
             print(output, file=out)
         print("Finished", conf)
