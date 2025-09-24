@@ -20,13 +20,19 @@ def run_exp(conf):
     path_str = "_".join(map(str, conf)) + ".log"
     if path.exists(path_str):
         print("Ignored", conf)
-        return
-    with open(path_str, mode="w") as out:
-        print(conf)
-        with Popen([python_bin, script_path, "--dataset", conf[0], "-h", conf[1], "-k", str(conf[2])], stdout=out, stderr=PIPE) as process:
-            output = process.communicate()[0].decode("utf-8")
-            print(output, file=out)
-        print("Finished", conf)
+        return path_str
+
+    with open(path_str, mode="w", buffering=1) as out:  # line-buffered
+        print(conf, file=out, flush=True)
+        with Popen(
+            [python_bin, script_path, "--dataset", conf[0], "-h", conf[1], "-k", str(conf[2])],
+            stdout=out,
+            stderr=out,      # merge stderr into the same log
+            text=True        # get str, not bytes
+        ) as process:
+            rc = process.wait()
+        print("Finished", conf, "rc=", rc, file=out, flush=True)
+    return path_str
 
 if __name__ == '__main__':
     configs = []
