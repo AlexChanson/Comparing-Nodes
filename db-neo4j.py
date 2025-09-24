@@ -480,8 +480,8 @@ if __name__ == "__main__":
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
     dict_databases_labels={"airports":["Airport","Country"],
-                           "icijleaks":["Intermediary","Entity"],
-                           "recommendation":["Actor","Movie"]
+                          # "icijleaks":["Intermediary","Entity"],
+                           "recommendations":["Actor","Movie"]
                            }
     #dict_databases_labels = {"airports": ["Airport", "Country"]
     #                         }
