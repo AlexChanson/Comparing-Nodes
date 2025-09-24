@@ -267,7 +267,7 @@ if __name__ == '__main__':
 
     data = normalize(data)
 
-    k = args.k
+    k = int(args.k)
     mtd = "fcm2"
     DISPLAY = False
 
