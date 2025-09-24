@@ -10,8 +10,8 @@ from os import path
 log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
-threads = 16
-nb_samples = 20
+threads = 8
+nb_samples = 5
 datasets = ["airports", "iris"]
 heuristics = ["ls", "smart-start"]
 
