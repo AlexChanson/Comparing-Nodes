@@ -10,5 +10,4 @@ statistics
 diptest
 prettyprint
 scipy
-sklearn
 pandas
