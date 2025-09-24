@@ -6,7 +6,7 @@ numba
 neo4j
 typing
 statistics
-scipy.stats
+#scipy.stats
 diptest
 prettyprint
 scipy
