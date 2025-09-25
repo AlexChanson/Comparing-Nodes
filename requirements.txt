@@ -11,3 +11,4 @@ diptest
 prettyprint
 scipy
 pandas
+skfeature-chappers

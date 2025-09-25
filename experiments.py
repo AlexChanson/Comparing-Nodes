@@ -10,10 +10,9 @@ from os import path
 log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
-threads = 8
-nb_samples = 5
-datasets = ["airports", "iris"]
-heuristics = ["ls", "smart-start"]
+nb_samples = 10
+datasets = ["directors", "iris", "actors", "movies", "airports"]
+heuristics = ["ls", "sls", "lp", "rd"]
 
 
 def run_exp(conf):
@@ -40,7 +39,11 @@ if __name__ == '__main__':
     for data_config in datasets:
         for heuristic in heuristics:
             for k in range(2,5):
-                for sample_id in range(nb_samples):
+                if heuristic != "exp":
+                    sids = range(nb_samples)
+                else:
+                    sids = [1]
+                for sample_id in sids:
                         configs.append((data_config, heuristic, k, sample_id))
 
     random.shuffle(configs)

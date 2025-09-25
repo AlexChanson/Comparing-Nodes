@@ -10,6 +10,10 @@ from numpy.typing import NDArray
 import heapq
 from itertools import count
 import argparse
+from skfeature.function.similarity_based import lap_score
+from skfeature.utility import construct_W
+import time
+
 
 from numba import njit
 #from PrettyPrint import PrettyPrintTree
@@ -187,11 +191,21 @@ def heur_exp(data, features, k, mtd, max_depth):
     return sol
 
 def heur_express(data, features, k, mtd):
-    h_assignement = analyze_features(data, maxClustFeat=min(5, len(features) - 1))
 
-    h_sol = list(map(lambda x: x['category'], h_assignement))
-    m = {'unused': 0, "clustering": -1, "comparison": 1}
-    h_sol = list(map(lambda x: m[x], h_sol))
+    W = construct_W.construct_W(data, neighbor_mode='knn', k=5)
+    lap_scores = lap_score.lap_score(data, W=W)
+    laplacians = np.asarray(list(lap_scores)).reshape(len(lap_scores), 1)
+    m = kmeans(laplacians, 10e-4, 2, 100)
+    c1_mean = lap_scores[m.astype(bool)].mean()
+    c0_mean = lap_scores[~m.astype(bool)].mean()
+    solution = np.ones_like(features)
+    #c0 has lowest average laplacian
+    if c1_mean > c0_mean:
+        solution[~m.astype(bool)] = -1
+    else:
+        solution[m.astype(bool)] = -1
+
+    h_sol = list(map(int,solution.tolist()))
     membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
     n = Node().from_starting(h_sol, membership,
                              si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
@@ -229,6 +243,12 @@ def heur_local_search(data, features, k, mtd, start, n_steps=5):
                 s.membership = solve_node(s.mask(), data, k, method=mtd, max_iters=200)
                 s.obj = s.eval_obj(data)
                 possible.append(s)
+            if n.sol[i] != 0:
+                dis = n.discard(i)
+                if dis.is_feasible():
+                    dis.membership = solve_node(dis.mask(), data, k, method=mtd, max_iters=100)
+                    dis.obj = dis.eval_obj(data)
+                    possible.append(dis)
 
         best_node = possible[0]
         best_obj = possible[0].obj
@@ -252,10 +272,11 @@ if __name__ == '__main__':
         description="Please specify dataset name"
     )
 
-    parser.add_argument("-ds", "--dataset", default="directors", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-ds", "--dataset", default="actors", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
+    parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
-    parser.add_argument("-m", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
+    parser.add_argument("-m", "--method", default="sls", help="Method to use (ls : local search, exp : full tree enumeration, sls: 'smart' start local search)")
     args = parser.parse_args()
 
     if args.dataset == "iris":
@@ -266,18 +287,24 @@ if __name__ == '__main__':
         features, data = load_movies()
     elif args.dataset == "directors":
         features, data = load_directors()
+    elif args.dataset == "actors":
+        features, data = load_actors()
 
     data = normalize(data)
 
     k = int(args.k)
     mtd = "fcm2"
     DISPLAY = False
+    ls_steps = int(args.steps)
+
+    st = time.process_time()
+    st_w = time.time()
 
     if args.method == "ls":
         sols = []
         for start in range(5):
             sol_rd = heur_random(data, features, k, mtd=mtd)
-            sols.append(heur_local_search(data, features, k, mtd=mtd, start=sol_rd))
+            sols.append(heur_local_search(data, features, k, mtd=mtd, start=sol_rd, n_steps=ls_steps))
         sols = sorted(sols, key=lambda x: x.obj)
         print("[Heuristic] Local Search finished with solutions:", sols)
         print("[best solution]:", sols[-1])
@@ -286,12 +313,26 @@ if __name__ == '__main__':
         sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
         print("[best solution]:", sol_exp)
 
-    elif args.method == "smart-start":
+    elif args.method == "sls":
         sol_patrick = heur_express(data, features, k, mtd=mtd)
-        sol_patrick = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick)
+        sol_patrick = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick, n_steps=ls_steps)
         print("[best solution]:", sol_patrick)
 
+    elif args.method == "lp":
+        sol_patrick = heur_express(data, features, k, mtd=mtd)
+        print("[best solution]:", sol_patrick)
 
+    elif args.method == "rd":
+        sol_rd = heur_random(data, features, k, mtd=mtd)
+        print("[best solution]:", sol_rd)
 
+    et = time.process_time()
+    et_w = time.time()
+
+    # get execution time
+    res = et - st
+    res_w = et_w - st_w
+    print('[CPU time]', res, 'seconds')
+    print('[Wall time]', res_w, 'seconds')
 
 
