@@ -1,4 +1,4 @@
-from datasets import load_iris, normalize, load_airports
+from datasets import *
 from b_and_b import *
 from clustering import *
 from utility import *
@@ -196,7 +196,7 @@ def heur_express(data, features, k, mtd):
     n = Node().from_starting(h_sol, membership,
                              si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
                                     membership))
-    print("[Heuristic] Express finished with solution:", n)
+    print("[Init] Smart-select finished with solution:", n)
     return n
 
 def heur_random(data, features, k, mtd):
@@ -206,7 +206,7 @@ def heur_random(data, features, k, mtd):
     n = Node().from_starting(h_sol, membership,
                              si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
                                     membership))
-    print("[Heuristic] Random finished with solution:", n)
+    print("[Init] Random finished with solution:", n)
     return n
 
 def heur_local_search(data, features, k, mtd, start, n_steps=5):
@@ -252,7 +252,7 @@ if __name__ == '__main__':
         description="Please specify dataset name"
     )
 
-    parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-ds", "--dataset", default="directors", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
     parser.add_argument("-m", "--method", default="ls", help="Method to use (ls : local search, exp : full tree enumeration)")
@@ -264,6 +264,8 @@ if __name__ == '__main__':
         features, data = load_airports()
     elif args.dataset == "movies":
         features, data = load_movies()
+    elif args.dataset == "directors":
+        features, data = load_directors()
 
     data = normalize(data)
 
