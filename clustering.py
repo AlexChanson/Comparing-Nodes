@@ -21,7 +21,7 @@ def _random_unique_indices(n_samples: np.int64, k: np.int64):
             filled += 1
     return out
 
-@njit()
+
 def kmeans(X, conv_criteria, k, max_iters):
     # --- Initialisation TODO kmeans++
     n_samples, n_features = X.shape

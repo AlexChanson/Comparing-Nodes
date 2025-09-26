@@ -68,6 +68,14 @@ class Node:
         else:
             return None
 
+    def discard(self, indicator:int):
+        n = self.__copy()
+        n.depth += 1
+        self.parent = self
+        n.sol[indicator] = 0
+        return n
+
+
     def __copy(self):
         n = Node()
         n.sol = copy(self.sol)
