@@ -474,20 +474,26 @@ RETURN
 
 # Example usage:
 if __name__ == "__main__":
+    current_time = time.localtime()
+    formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
+    fileResults = 'reports/results_' + formatted_time + '.csv'
+    column_names = ['database', 'label', 'indicators#', 'nodes#', 'time']
+    dfresults = pd.DataFrame(columns=column_names)
+
     #  URI/user/password
     uri="bolt://localhost:7687"
     user="neo4j"
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
     dict_databases_labels={"airports":["Airport","Country"],
-                          # "icijleaks":["Intermediary","Entity"],
+                           # "icijleaks":["Intermediary","Entity"],
                            "recommendations":["Actor","Movie"]
                            }
     #dict_databases_labels = {"airports": ["Airport", "Country"]
     #                         }
     #dict_databases_labels = {"icijleaks":["Officer","Intermediary","Entity"]}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
-                          "recommendation":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
+                          "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
                           "icijleaks":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179"}
 
     # validates and transform (scale) candidate indicators
@@ -501,6 +507,7 @@ if __name__ == "__main__":
 
     #label
     #label=dict_databases_labels["airports"][0]
+
 
     for password in dict_databases_labels.keys():
         print("database: ", password)
@@ -563,17 +570,7 @@ if __name__ == "__main__":
                 end_time = time.time()
                 timings = end_time - start_time
                 print('Completed in ', timings, 'seconds')
-
-                #print(db.getNumericalProperties('Airport'))
-                #print(db.getRelationCardinality())
-                #print(db.getValidProperties('Airport'))
-
-                #f,m = db.createDatasetForLabel('Airport')
-                #print(f)
-                #print(m)
-
-                #db.getDegreeOfRelationForLabel('Airport')
-
-                #print(db.getBestPageRank('Airport', 'ROUTE_TO'))
+                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),timings]
 
         stop_dbms(dbspec)
+    dfresults.to_csv(fileResults, mode='a', header=True)

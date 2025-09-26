@@ -1,0 +1,5 @@
+,database,label,indicators#,nodes#,time
+0,airports,Airport,25,3837,10.445762634277344
+1,airports,Country,24,111,2.0450501441955566
+2,recommendations,Actor,5,7202,7.278752088546753
+3,recommendations,Movie,10,4143,3.747483015060425
