@@ -462,9 +462,9 @@ RETURN
         print("Columns:", ", ".join(df.columns))
         return df
 
-    def getAvgPropByElem(self):
-        query=("CALL    {  MATCH(n)    WITH     n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN['INTEGER', 'FLOAT']] AS "
-             +  " numericProps)   RETURN    avg(size(numericProps))    AS    avgNodeNumericProps    }"
+    def getAvgPropByElem(self,label):
+        query=("CALL    {  MATCH(n:"+label+")    WITH     n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN['INTEGER', 'FLOAT']] AS "
+             +  " numericProps   RETURN    avg(size(numericProps))    AS    avgNodeNumericProps    }"
              +  "    CALL    {        MATCH() - [r] - ()    WITH    r, [k IN keys(r) WHERE apoc.meta.cypher.type(r[k]) IN['INTEGER', 'FLOAT']]"
              +  " AS    numericProps    RETURN    avg(size(numericProps))    AS    avgRelNumericProps    }"
              +  "    RETURN    avgNodeNumericProps, avgRelNumericProps;")
@@ -477,7 +477,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'label', 'indicators#', 'nodes#', 'time']
+    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -570,7 +570,8 @@ if __name__ == "__main__":
                 end_time = time.time()
                 timings = end_time - start_time
                 print('Completed in ', timings, 'seconds')
-                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),timings]
+                avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
+                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
