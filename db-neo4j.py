@@ -491,10 +491,10 @@ if __name__ == "__main__":
     user="neo4j"
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
-    dict_databases_labels={"airports":["Airport"," Country","City"]
+    dict_databases_labels={"airports":["Airport","Country","City"]
                            ,"recommendations":["Actor","Movie","Director"]
-                            ,"icijleaks":["Entity", "Intermediary", "Officer"] #, "Entity", "Intermediary", "Officer"
-                            #,"icijleaks": ["Intermediary"]  # , "Entity", "Intermediary", "Officer"
+                            #,"icijleaks":["Entity", "Intermediary", "Officer"]
+                            ,"icijleaks": ["Intermediary"]
                            }
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
                           "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
@@ -549,7 +549,7 @@ if __name__ == "__main__":
                 # get 1 relationships for label (and save those to csv)
                 out="sample_data/"+label+"_indicators.csv"
                 #do not send queries for edges if they do not have properties
-                if dict_databases_numbers[password][3] == 0:
+                if dict_databases_numbers[password][3] == float(0):
                     df121=db.fetch_as_dataframe(out,label,10,manyToOne,False)
                 else:
                     df121=db.fetch_as_dataframe(out,label,10,manyToOne,True)
