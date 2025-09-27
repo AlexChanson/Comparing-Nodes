@@ -562,6 +562,7 @@ if __name__ == "__main__":
                 # then outer join with dftemp
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
 
+
                 # first remove correlated columns
                 dffinal=remove_correlated_columns(dffinal,correlation_threshold)
                 # then check for variance and nulls

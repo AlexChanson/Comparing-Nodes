@@ -167,5 +167,6 @@ if __name__ == "__main__":
     #score('sample_data/Director_indicators_processed_nonulls.csv',2)
     #score('sample_data/Intermediary_indicators_processed_nonulls.csv',2)
     #score('sample_data/Country_indicators_processed_nonulls.csv',2)
-    score('sample_data/Airport_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Airport_indicators_processed_nonulls.csv',2)
     #score('sample_data/Movie_indicators_processed_nonulls.csv',2)
+    score('sample_data/Entity_indicators_processed_nonulls.csv',2)
