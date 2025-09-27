@@ -483,7 +483,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition']
+    column_names = ['database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition','partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -491,10 +491,10 @@ if __name__ == "__main__":
     user="neo4j"
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
-    dict_databases_labels={#"airports":["Airport"," Country","City"]
-                           #,"recommendations":["Actor","Movie","Director"]
-                            #,"icijleaks":["Intermediary"] #, "Entity", "Intermediary", "Officer"
-                            "icijleaks": ["Entity"]  # , "Entity", "Intermediary", "Officer"
+    dict_databases_labels={"airports":["Airport"," Country","City"]
+                           ,"recommendations":["Actor","Movie","Director"]
+                            ,"icijleaks":["Entity", "Intermediary", "Officer"] #, "Entity", "Intermediary", "Officer"
+                            #,"icijleaks": ["Intermediary"]  # , "Entity", "Intermediary", "Officer"
                            }
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
                           "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
@@ -594,7 +594,7 @@ if __name__ == "__main__":
                 avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                 #save to result dataframe
-                dfresults.loc[len(dfresults)] = [password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition]
+                dfresults.loc[len(dfresults)] = [password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition,partition]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
