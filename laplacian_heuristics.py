@@ -145,14 +145,18 @@ def score(file,ngroups=2):
     #print(dictResult)
 
     forComparison=sorted_df[sorted_df['split']==True]
-    #forComparison=forComparison.drop(columns=['cluster'])
-    col_metric = 'cv'
-    #build_feature_groups(forComparison, col_metric, ngroups)
-    threshold = find_elbow_threshold(forComparison, col_metric, visualize=True)
-    forComparison['split2'] = forComparison[col_metric] > threshold
-    print(forComparison)
-    dictResult['comparison'] = list(forComparison.loc[forComparison['split2'] == True]['feature'])
-    dictResult['unused'] = list(forComparison.loc[forComparison['split2'] == False]['feature'])
+    if forComparison.empty:
+        dictResult['comparison']=[]
+        dictResult['unused'] = []
+    else:
+        #forComparison=forComparison.drop(columns=['cluster'])
+        col_metric = 'cv'
+        #build_feature_groups(forComparison, col_metric, ngroups)
+        threshold = find_elbow_threshold(forComparison, col_metric, visualize=True)
+        forComparison['split2'] = forComparison[col_metric] > threshold
+        print(forComparison)
+        dictResult['comparison'] = list(forComparison.loc[forComparison['split2'] == True]['feature'])
+        dictResult['unused'] = list(forComparison.loc[forComparison['split2'] == False]['feature'])
 
     print(dictResult)
     return dictResult
