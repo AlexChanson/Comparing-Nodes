@@ -3,23 +3,26 @@ from statistics import variance, pvariance
 import numpy as np
 from neo4j import GraphDatabase, basic_auth
 from typing import Any, Dict, List, Optional
+
+from scipy.sparse.csgraph import laplacian
 from scipy.stats import variation
 
 import argparse
+import distanceFromLabel
+
 import pandas as pd
 
 import utility
+from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
 from validation import process_dataframe, export, remove_correlated_columns
 from inDegrees import in_degree_by_relationship_type
-import distanceFromLabel
-
 import time
-
 from typing import List, Dict, Optional
-
 from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
+
+from laplacian_heuristics import score
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -477,7 +480,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Card', 'time']
+    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -569,8 +572,18 @@ if __name__ == "__main__":
                 end_time = time.time()
                 timings = end_time - start_time
                 print('Completed in ', timings, 'seconds')
+
+                #call laplacian heuristics on data
+                start_time = time.time()
+                partition=score(processedIndicators)
+                end_time = time.time()
+                timingsPartition = end_time - start_time
+
+                #computes avg numerical properties for node type label
                 avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
-                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings]
+
+                #save to result dataframe
+                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)

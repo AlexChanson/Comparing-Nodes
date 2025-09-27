@@ -40,6 +40,8 @@ def find_elbow_threshold(df, column, visualize=False):
     elbow_index = knee.knee
 #    threshold = sorted_vals[int(elbow_index * len(sorted_vals))] if elbow_index else None
 
+    print(knee.all_knees_y)
+
     # Step 4: Optional visualization
     if visualize:
         plt.plot(x, y, label='Normalized values')
@@ -77,15 +79,17 @@ def score(file,ngroups=2):
     }
 
     # Total variance
-    total_var = X_std.var().sum()
+    #total_var = X_std.var().sum()
 
     # Compute metrics per feature
     for col in X_std.columns:
         x = X_std[col].values
 
-        # 1. Variance ratio
+        # OLD 1. Variance ratio
         #var_ratio = np.var(x) # / total_var
         #metrics['variance_ratio'].append(var_ratio)
+
+        # 1. coefficient of variation
         cv = np.std(x) / np.mean(x)
         metrics['cv'].append(cv)
 
@@ -155,5 +159,9 @@ def score(file,ngroups=2):
 
 
 if __name__ == "__main__":
-    #score('sample_data/Airport_indicators_processed_nonulls.csv',2)
-    score('sample_data/Movie_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Actor_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Director_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Intermediary_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Country_indicators_processed_nonulls.csv',2)
+    score('sample_data/Airport_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Movie_indicators_processed_nonulls.csv',2)
