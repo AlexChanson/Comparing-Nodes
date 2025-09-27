@@ -477,7 +477,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time']
+    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Card', 'time']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -485,13 +485,10 @@ if __name__ == "__main__":
     user="neo4j"
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
-    dict_databases_labels={"airports":["Airport","Country"],
-                           # "icijleaks":["Intermediary","Entity"],
-                           "recommendations":["Actor","Movie"]
+    dict_databases_labels={"airports":["Airport","Country"]
+                           ,"recommendations":["Actor","Movie"]
+                            ,"icijleaks":["Intermediary"] #, "Entity"
                            }
-    #dict_databases_labels = {"airports": ["Airport", "Country"]
-    #                         }
-    #dict_databases_labels = {"icijleaks":["Officer","Intermediary","Entity"]}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
                           "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
                           "icijleaks":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179"}
@@ -516,21 +513,23 @@ if __name__ == "__main__":
         dbspec = DbSpec(password, dict_databases_homes[password], uri, user, password)
         start_dbms(dbspec)
 
-        for label in dict_databases_labels[password]:
-            print("Label: ",label)
+        with Neo4jConnector(uri, user, password) as db:
 
+            # finds relationship cardinalities
+            print("Finding cardinalities")
+            start_time = time.time()
+            manyToOne, manyToMany = db.detect_relationship_cardinalities()
+            end_time = time.time()
+            timings_cardinalities = end_time - start_time
 
-            with Neo4jConnector(uri, user, password) as db:
+            for label in dict_databases_labels[password]:
+                print("Label: ",label)
 
                 # for contextualization - work in progress
                 #df = distanceFromLabel.schema_distances_from_label(db.getDriver().session(), label)
                 #print(df.to_string(index=False))
 
-
                 start_time = time.time()
-
-                # finds relationship cardinalities
-                manyToOne,manyToMany = db.detect_relationship_cardinalities()
 
                 # get context and candidate indicators
                 # get * relationships for label
@@ -571,7 +570,7 @@ if __name__ == "__main__":
                 timings = end_time - start_time
                 print('Completed in ', timings, 'seconds')
                 avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
-                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings]
+                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)

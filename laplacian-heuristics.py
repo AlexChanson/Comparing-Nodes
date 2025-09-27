@@ -6,9 +6,7 @@ from scipy.stats import kurtosis, skew
 from scipy.spatial.distance import pdist
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
-from kneed import KneeLocator
 from sklearn.cluster import KMeans
-
 
 import numpy as np
 import pandas as pd
@@ -27,15 +25,20 @@ def find_elbow_threshold(df, column, visualize=False):
     sorted_vals = np.sort(df[column].values)
 
     # Step 2: Normalize to [0,1] for stability
-    x = np.linspace(0, 1, len(sorted_vals))
-    y = (sorted_vals - sorted_vals.min()) / (sorted_vals.max() - sorted_vals.min())
+    #x = np.linspace(0, 1, len(sorted_vals))
+    #y = (sorted_vals - sorted_vals.min()) / (sorted_vals.max() - sorted_vals.min())
+    x = np.arange(0, len(sorted_vals))
+    y = sorted_vals
 
     # Step 3: Find elbow using curvature
     plt.figure(figsize=(8, 5))
     plt.plot(x, y, label='Curve')
     knee = KneeLocator(x, y, curve='convex', direction='increasing')
+    #print(len(sorted_vals))
+    if knee.elbow==len(sorted_vals)-1:
+        knee = KneeLocator(x, y, curve='concave', direction='increasing')
     elbow_index = knee.knee
-    threshold = sorted_vals[int(elbow_index * len(sorted_vals))] if elbow_index else None
+#    threshold = sorted_vals[int(elbow_index * len(sorted_vals))] if elbow_index else None
 
     # Step 4: Optional visualization
     if visualize:
@@ -46,10 +49,11 @@ def find_elbow_threshold(df, column, visualize=False):
         plt.legend()
         plt.show()
 
-    return threshold
+    return knee.knee_y
+#    return threshold
 
 
-def score(file,ngroups):
+def score(file,ngroups=2):
     # Load CSV into a DataFrame
     #data = pd.read_csv('./data/Movie_indicators_processed_nonulls.csv') # Airport_indicators_processed_nonulls
     data = pd.read_csv(file) # Airport_indicators_processed_nonulls
@@ -65,7 +69,8 @@ def score(file,ngroups):
 
     # Initialize metrics
     metrics = {
-        'variance_ratio': [],
+        #'variance_ratio': [],
+        'cv': [],
         'cv_pairwise': [],
         'bimodality': [],
         'laplacian_score': []
@@ -79,8 +84,10 @@ def score(file,ngroups):
         x = X_std[col].values
 
         # 1. Variance ratio
-        var_ratio = np.var(x) # / total_var
-        metrics['variance_ratio'].append(var_ratio)
+        #var_ratio = np.var(x) # / total_var
+        #metrics['variance_ratio'].append(var_ratio)
+        cv = np.std(x) / np.mean(x)
+        metrics['cv'].append(cv)
 
         # 2. Coefficient of variation over pairwise distances
         diffs = np.diff(np.sort(x))
@@ -112,23 +119,41 @@ def score(file,ngroups):
     correlation_matrix = metrics_df.corr()
 
     # Display results
-    print("\n📊 Feature Metrics:")
+    print("\n Feature Metrics:")
     print(sorted_df.round(3))
     #print(metrics_df.round(3))
 
-    print("\n🔗 Correlation Between Metrics:")
+    print("\n Correlation Between Metrics:")
     print(correlation_matrix.round(3))
 
-    build_feature_groups(sorted_df, col_metric,ngroups)
+    #build_feature_groups(sorted_df, col_metric,ngroups)
 
-    print(sorted_df)
-
+    #pd.set_option('display.max_columns', None)
+    #print(sorted_df)
     # define a cutting point in the selected metric / column
-    #threshold = find_elbow_threshold(sorted_df, col_metric, visualize=True)
+    threshold = find_elbow_threshold(sorted_df, col_metric, visualize=True)
     #
     # Split the column based on threshold
-    #sorted_df['split'] = sorted_df[col_metric] > threshold
+    sorted_df['split'] = sorted_df[col_metric] > threshold
+    print(sorted_df)
+    dictResult={}
+    dictResult['clustering'] = list(sorted_df.loc[sorted_df['split'] ==False]['feature'])
+    #print(dictResult)
+
+    forComparison=sorted_df[sorted_df['split']==True]
+    #forComparison=forComparison.drop(columns=['cluster'])
+    col_metric = 'cv'
+    #build_feature_groups(forComparison, col_metric, ngroups)
+    threshold = find_elbow_threshold(forComparison, col_metric, visualize=True)
+    forComparison['split2'] = forComparison[col_metric] > threshold
+    print(forComparison)
+    dictResult['comparison'] = list(forComparison.loc[forComparison['split2'] == True]['feature'])
+    dictResult['unused'] = list(forComparison.loc[forComparison['split2'] == False]['feature'])
+
+    print(dictResult)
+    return dictResult
+
 
 if __name__ == "__main__":
-    score('sample_data/Airport_indicators_processed_nonulls.csv',2)
-    #score('sample_data/Movie_indicators_processed_nonulls.csv',2)
+    #score('sample_data/Airport_indicators_processed_nonulls.csv',2)
+    score('sample_data/Movie_indicators_processed_nonulls.csv',2)
