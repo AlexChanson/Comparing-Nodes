@@ -440,7 +440,7 @@ RETURN
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one) -> pd.DataFrame:
+    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True) -> pd.DataFrame:
         #cypher = self.build_cypher(label, max_depth)
         #driver = GraphDatabase.driver(uri, auth=(user, password))
         #try:
@@ -448,9 +448,10 @@ RETURN
         #result = session.run(cypher)
         query=self.build_cypher_nodes(label, max_depth,many2one)
         result=self.execute_query(query)
-        query_edge = self.build_cypher_edges(label, max_depth,many2one)
-        result_edges = self.execute_query(query_edge)
-        result=result+result_edges
+        if checkedges:
+            query_edge = self.build_cypher_edges(label, max_depth,many2one)
+            result_edges = self.execute_query(query_edge)
+            result=result+result_edges
         rows = []
         for rec in result:
             root_id = rec["rootId"]
@@ -475,12 +476,14 @@ RETURN
         return result
 
 
+
+
 # Example usage:
 if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition']
+    column_names = ['database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -488,19 +491,24 @@ if __name__ == "__main__":
     user="neo4j"
     password="airports"
     tab_databases=["airports","icijleaks","recommendations"]
-    dict_databases_labels={"airports":["Airport","Country"]
-                           ,"recommendations":["Actor","Movie"]
-                            ,"icijleaks":["Intermediary"] #, "Entity"
+    dict_databases_labels={#"airports":["Airport"," Country","City"]
+                           #,"recommendations":["Actor","Movie","Director"]
+                            #,"icijleaks":["Intermediary"] #, "Entity", "Intermediary", "Officer"
+                            "icijleaks": ["Entity"]  # , "Entity", "Intermediary", "Officer"
                            }
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
                           "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
                           "icijleaks":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179"}
-
+    dict_databases_numbers={ #number of nodes, number of edges, avg number of properties nodes/edges
+        "airports":[52944,136948,3.99,0.86],
+        "recommendations":[28863,166261,1.6,1.2],
+        "icijleaks":[20165233,339267,1,0]
+    }
     # validates and transform (scale) candidate indicators
-    null_threshold = 0.5
-    distinct_low = 0.000001
-    distinct_high = 0.96
-    correlation_threshold = 0.95
+    null_threshold = 0.5 #0.5
+    distinct_low = 0.000001 #0.000001
+    distinct_high = 0.95 #0.95
+    correlation_threshold = 0.95 #0.95
 
     # True = remove lines with at least one null value
     NONULLS = True
@@ -540,8 +548,11 @@ if __name__ == "__main__":
 
                 # get 1 relationships for label (and save those to csv)
                 out="sample_data/"+label+"_indicators.csv"
-                df121=db.fetch_as_dataframe(out,label,10,manyToOne)
-
+                #do not send queries for edges if they do not have properties
+                if dict_databases_numbers[password][3] == 0:
+                    df121=db.fetch_as_dataframe(out,label,10,manyToOne,False)
+                else:
+                    df121=db.fetch_as_dataframe(out,label,10,manyToOne,True)
                 #out join * and 1
                 dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
@@ -550,7 +561,6 @@ if __name__ == "__main__":
 
                 # then outer join with dftemp
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
-
 
                 # first remove correlated columns
                 dffinal=remove_correlated_columns(dffinal,correlation_threshold)
@@ -583,7 +593,7 @@ if __name__ == "__main__":
                 avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                 #save to result dataframe
-                dfresults.loc[len(dfresults)] = [password,label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition]
+                dfresults.loc[len(dfresults)] = [password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
