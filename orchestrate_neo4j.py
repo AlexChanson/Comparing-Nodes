@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from typing import List, Optional, Callable
 
 from neo4j import GraphDatabase, basic_auth
-from neo4j.exceptions import ServiceUnavailable
-
 
 # NEW imports
 import re

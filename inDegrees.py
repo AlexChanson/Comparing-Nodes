@@ -1,4 +1,3 @@
-from typing import Optional
 import pandas as pd
 
 def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:

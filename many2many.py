@@ -1,5 +1,3 @@
-# neo4j_m2m_aggregates.py
-
 from typing import Iterable, List, Dict, Optional, Literal
 from neo4j import Driver, Session
 import pandas as pd

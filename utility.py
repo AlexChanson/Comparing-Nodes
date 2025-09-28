@@ -1,6 +1,5 @@
 import numpy as np
 from numba import njit
-from numba.core.inline_closurecall import length_of_iterator
 from scipy.stats import rankdata, describe
 import pandas as pd
 import random

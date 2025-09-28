@@ -1,9 +1,5 @@
-import numpy as np
-import pandas as pd
-from sklearn.datasets import load_iris
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import kurtosis, skew
-from scipy.spatial.distance import pdist
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 from sklearn.cluster import KMeans

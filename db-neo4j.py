@@ -4,11 +4,7 @@ import numpy as np
 from neo4j import GraphDatabase, basic_auth
 from typing import Any, Dict, List, Optional
 
-from scipy.sparse.csgraph import laplacian
 from scipy.stats import variation
-
-import argparse
-import distanceFromLabel
 
 import pandas as pd
 
@@ -483,7 +479,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_indicators','time_Partition','partition']
+    column_names = ['database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -562,7 +558,11 @@ if __name__ == "__main__":
                 # then outer join with dftemp
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
 
+                end_time = time.time()
+                indicatorsTimings = end_time - start_time
 
+                # validation
+                start_time = time.time()
                 # first remove correlated columns
                 dffinal=remove_correlated_columns(dffinal,correlation_threshold)
                 # then check for variance and nulls
@@ -581,8 +581,8 @@ if __name__ == "__main__":
 
 
                 end_time = time.time()
-                timings = end_time - start_time
-                print('Completed in ', timings, 'seconds')
+                validationTimings = end_time - start_time
+                #print('Completed in ', timings, 'seconds')
 
                 #call laplacian heuristics on data
                 start_time = time.time()
@@ -594,7 +594,7 @@ if __name__ == "__main__":
                 avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                 #save to result dataframe
-                dfresults.loc[len(dfresults)] = [password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, timings,timingsPartition,partition]
+                dfresults.loc[len(dfresults)] = [password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, indicatorsTimings, validationTimings,timingsPartition,partition]
 
         stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
