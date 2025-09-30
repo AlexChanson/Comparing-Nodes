@@ -19,6 +19,7 @@ from typing import List, Dict, Optional
 from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
 
 from laplacian_heuristics import score
+from contextualization import schema_hops_from_label,weight_df_by_schema_hops
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -471,7 +472,55 @@ RETURN
         result = self.execute_query(query)
         return result
 
+    from typing import List, Dict
 
+    def index_numeric_properties(self, label: str) -> List[Dict[str, object]]:
+        """
+        Create range indexes for all numeric (Integer/Float) properties
+        of nodes with the given label.
+
+        Parameters
+        ----------
+        driver : neo4j.Driver
+            An active Neo4j driver (neo4j>=4.3/5.x).
+        label : str
+            The node label to inspect (e.g., "City").
+
+        Returns
+        -------
+        List[Dict[str, object]]
+            One dict per property with keys:
+            - property: str         # property name
+            - index_name: str       # created or reused index name
+            - created: bool         # True if a new index was created
+        """
+        # 1) Discover numeric properties for the label using built-in metadata
+        discover_props_cypher = """
+        CALL db.schema.nodeTypeProperties() 
+        YIELD nodeLabels, propertyName, propertyTypes
+        WHERE $label IN nodeLabels 
+          AND any(t IN propertyTypes WHERE t IN ['Integer','Float'])
+        RETURN collect(DISTINCT propertyName) AS props
+        """
+
+        # 2) Create (if not exists) a range index for each numeric property
+        results: List[Dict[str, object]] = []
+        with self.driver.session() as session:
+            rec = session.run(discover_props_cypher, {"label": label}).single()
+            props = rec["props"] if rec and rec.get("props") else []
+
+            for prop in props:
+                # Safe names; quote label/prop in Cypher; index name is optional but helpful
+                idx_name = f"idx_{label}_{prop}".replace("`", "").lower()
+                create_idx_cypher = f"""
+                CREATE INDEX {idx_name} IF NOT EXISTS
+                FOR (n:`{label}`) ON (n.`{prop}`)
+                """
+                summary = session.run(create_idx_cypher).consume()
+                created = summary.counters.indexes_added > 0
+                results.append({"property": prop, "index_name": idx_name, "created": created})
+
+        return results
 
 
 # Example usage:
@@ -532,10 +581,6 @@ if __name__ == "__main__":
             for label in dict_databases_labels[password]:
                 print("Label: ",label)
 
-                # for contextualization - work in progress
-                #df = distanceFromLabel.schema_distances_from_label(db.getDriver().session(), label)
-                #print(df.to_string(index=False))
-
                 start_time = time.time()
 
                 # get context and candidate indicators
@@ -565,7 +610,7 @@ if __name__ == "__main__":
                 start_time = time.time()
                 # first remove correlated columns
                 dffinal=remove_correlated_columns(dffinal,correlation_threshold)
-                # then check for variance and nulls
+                # then check for variance and nulls, and scale
                 keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
 
                 processedIndicators="sample_data/"+label+"_indicators_processed.csv"
@@ -576,6 +621,9 @@ if __name__ == "__main__":
                     keep=utility.remove_rows_with_nulls(keep)
                     processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
 
+                # contextualization
+                dist = schema_hops_from_label(db.getDriver(), label , include_relationship_types=True, directed=False)
+                keep = weight_df_by_schema_hops(keep, dist)
 
                 export(keep,report,processedIndicators,processingReport)
 
