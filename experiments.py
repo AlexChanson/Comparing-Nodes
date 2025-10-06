@@ -11,8 +11,8 @@ log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
 nb_samples = 10
-datasets = ["directors", "iris", "actors", "movies", "airports"]
-heuristics = ["ls", "sls", "lp", "rd"]
+datasets = [ "iris", "actors", "movies", ] #"directors", "airports"
+heuristics = ["exp"] #"ls", "sls", "lp", "rd"
 
 
 def run_exp(conf):
