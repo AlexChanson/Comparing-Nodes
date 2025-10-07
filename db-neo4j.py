@@ -1,44 +1,45 @@
-import itertools
-import time
-from collections import defaultdict
-from collections.abc import Generator
-from statistics import pvariance, variance
-from typing import Any, Dict, List, Optional, Set, Tuple
+from statistics import variance, pvariance
+
+import numpy as np
+from neo4j import GraphDatabase, basic_auth
+from typing import Any, Dict, List, Optional
+
+from scipy.stats import variation
 
 import pandas as pd
+
 import utility
-from contextualization import schema_hops_from_label, weight_df_by_schema_hops
-from inDegrees import in_degree_by_relationship_type
-from laplacian_heuristics import score
+from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
-from neo4j import Driver, GraphDatabase, basic_auth
-from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms
-from scipy.stats import variation
 from utility import outer_join_features
-from validation import export, process_dataframe, remove_correlated_columns
+from validation import process_dataframe, export, remove_correlated_columns
+from inDegrees import in_degree_by_relationship_type
+import time
+from typing import List, Dict, Optional
+from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
+
+from laplacian_heuristics import score
+from contextualization import schema_hops_from_label,weight_df_by_schema_hops
 
 NUMERIC_TYPES = [
-    # APOC meta cypher type names (Neo4j 4/5)
-    "INTEGER",
-    "FLOAT",
-    "Number",
-    "Long",
-    "Double",
-    # (If you want numeric lists too, add: "LIST OF INTEGER", "LIST OF FLOAT", etc.)
-]
-
+        # APOC meta cypher type names (Neo4j 4/5)
+        "INTEGER", "FLOAT", "Number", "Long", "Double"
+        # (If you want numeric lists too, add: "LIST OF INTEGER", "LIST OF FLOAT", etc.)
+    ]
 
 class Neo4jConnector:
-    """A simple Neo4j connection manager and query runner."""
+    """
+    A simple Neo4j connection manager and query runner.
+    """
 
     def __init__(
-        self,
-        uri: str,
-        user: str,
-        password: str,
-        encrypted: bool = False,
-        **driver_kwargs: Any,
-    ) -> None:
+            self,
+            uri: str,
+            user: str,
+            password: str,
+            encrypted: bool = False,
+            **driver_kwargs: Any
+    ):
         """
         Initialize the driver.
 
@@ -52,34 +53,35 @@ class Neo4jConnector:
             uri,
             auth=basic_auth(user, password),
             encrypted=encrypted,
-            **driver_kwargs,
+            **driver_kwargs
         )
 
-    def get_driver(self) -> Driver:
+    def getDriver(self) -> GraphDatabase.driver:
         return self._driver
 
     def close(self) -> None:
-        """Close the underlying driver connection."""
+        """
+        Close the underlying driver connection.
+        """
         self._driver.close()
 
     def execute_query(
-        self,
-        query: str,
-        parameters: Optional[Dict[str, Any]] = None,
-        database: Optional[str] = None,
-    ) -> Generator[Dict[str, Any], None, None]:
+            self,
+            query: str,
+            parameters: Optional[Dict[str, Any]] = None,
+            database: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         Run a Cypher query and return a list of records as dictionaries.
 
         :param query: Cypher query string
         :param parameters: Query parameters dict
-        :param database: Optional database name (for multi-db setups)
+        :param database: Optional database name (for multi‐db setups)
         :return: List of record dictionaries
         """
         with self._driver.session(database=database) as session:
             result = session.run(query, parameters or {})
-            for record in result:
-                yield record.data()
+            return [record.data() for record in result]
 
     def __enter__(self) -> "Neo4jConnector":
         """Enable use as a context manager."""
@@ -89,105 +91,121 @@ class Neo4jConnector:
         """Ensure the driver is closed on exit."""
         self.close()
 
-    def get_numerical_properties(self, label: str) -> Set[str]:
-        """Return the names of numerical properties of nodes with label."""
-        properties = self.execute_query(
-            """
-            CALL apoc.meta.nodeTypeProperties({includeLabels:$labels})
-            YIELD propertyName, propertyTypes
-            WHERE ANY(t IN propertyTypes WHERE t IN $num_types)
-            RETURN DISTINCT propertyName AS prop;
-            """,
-            parameters={
-                "labels": [label],
-                "num_types": NUMERIC_TYPES,
-            },
-        )
-        return {p["prop"] for p in properties}
+    def getNumericalProperties(self, label):
+        """returns the names of numerical properties of nodes with label"""
+        result=[]
+        nodes = self.execute_query("MATCH (n:"+label+") RETURN apoc.meta.cypher.types(n)")
+        for n in nodes:
+            for p in n['apoc.meta.cypher.types(n)']:
+                if n['apoc.meta.cypher.types(n)'][p]=='INTEGER' or n['apoc.meta.cypher.types(n)'][p]=='FLOAT':
+                    result.append(p)
+        return set(result) #ugly fixme
 
-    def variance_of_property(self, property: str, label: str):
+    def varianceOfProperty(self, property,label):
         # get variance indicators of property for nodes of label
         # returns nb values, nb distinct values, variance of sample, variance of population, coefficient of variation
         # first need all the values
-        values = self.execute_query(f"MATCH (n:{label}) RETURN n.{property} AS prop")
-        tab_val = [v['prop'] for v in values if v['prop'] is not None]
+        values = self.execute_query("MATCH (n:" + label + ") RETURN n."+property)
+        str="n."+property
+        tabVal=[]
+        for v in values:
+            if v[str]!=None:
+                tabVal.append(v[str])
+        return tabVal,len(tabVal),len(set(tabVal)),variance(tabVal),pvariance(tabVal),variation(tabVal)
 
-        return (
-            tab_val,
-            len(tab_val),
-            len(set(tab_val)),
-            variance(tab_val),
-            pvariance(tab_val),
-            variation(tab_val),
-        )
+    def getAllPropFor(self,label)->List[Dict[str, Any]]:
+        result = self.getNumericalProperties(label)
 
-    def get_valid_properties(self, label: str) -> Set[str]:
-        result = set()
-        properties = self.get_numerical_properties(label)
-        for prop in properties:
-            tab, nb, nbd, v, pv, cv = self.variance_of_property(prop, label)
-            if 1 < nbd < nb:  # fixme: check better ways of validating
-                result.add(prop)
+
+    def getValidProperties(self,label):
+        result=[]
+        tabProp=self.getNumericalProperties(label)
+        for p in tabProp:
+            tab,nb,nbd,v,pv,cv=self.varianceOfProperty(p,label)
+            if nbd<nb and nbd>1: #fixme check better ways of validating
+                result.append(p)
         return result
 
-    def get_relation_cardinality(self) -> Dict[str, Set[str]]:
-        cardinalities = self.execute_query("""
-        MATCH (x)-[r]->(y)
-        WITH
-            type(r) AS name, head(labels(x)) AS label_x, head(labels(y)) AS label_y,
-            count(distinct x) AS count_x, count(distinct y) AS count_y, count(distinct r) AS count_r
-        RETURN name,
-            CASE WHEN count_y < count_r THEN label_x ELSE label_y END AS source,
-            CASE WHEN count_y < count_r THEN label_y ELSE label_x END AS target,
-            count_x < count_r AND count_y < count_r AS is_many_to_many
-        """)
-
-        dict_rel = {"manyToMany": set(), "oneToMany": set()}
-        for card in cardinalities:
-            if card["is_many_to_many"]:
-                dict_rel["manyToMany"].add(card["name"])
+    def getRelationCardinality(self):
+        query = ("MATCH (x)-[r]->(y) " 
+                "WITH type(r) AS name, head(labels(x)) AS label_x, head(labels(y)) " 
+                "AS label_y, count(distinct x) AS count_x, count(distinct y) "
+                "AS count_y, count(distinct r) AS count_r "
+                "RETURN name,"
+                "    CASE WHEN count_y < count_r THEN label_x ELSE label_y END AS source,"
+                "    CASE WHEN count_y < count_r THEN label_y ELSE label_x END AS target,"
+                "    count_x < count_r AND count_y < count_r AS is_many_to_many")
+        carinalities=self.execute_query(query)
+        dictRel={}
+        dictRel['manyToMany']=[]
+        dictRel['oneToMany']=[]
+        for c in carinalities:
+            if c['is_many_to_many']==True:
+                dictRel['manyToMany'].append(c['name'])
             else:
-                dict_rel["oneToMany"].add(card["name"])
+                dictRel['oneToMany'].append(c['name'])
+        return dictRel
 
-        return dict_rel
+    def createDatasetForLabel(self,label):
+        tabProp=self.getValidProperties(label)
+        str='elementId(n),'
+        for p in tabProp:
+            str=str+'n.'+p+','
+        str=str[:-1]
+        values = self.execute_query("MATCH (n:" + label + ") RETURN "+str)
+        # transform into features + matrix
+        # 1. Extract feature names from the keys of the first dict, stripping the "n." prefix
+#        features = [key.split('.', 1)[1] for key in values[0].keys()]
+        features = [key for key in values[0].keys()]
 
-    def create_dataset_for_label(self, label: str) -> pd.DataFrame:
-        properties = self.get_valid_properties(label)
-        properties_str = " ".join(f", n.{prop} AS {prop}" for prop in properties)
-        values = self.execute_query(f"MATCH (n:{label}) RETURN elementId(n)" + properties_str)
-        return pd.DataFrame.from_records(values)
+        # 2. Build the matrix of values, row by row
+        matrix = [
+            [row.get(f"{feat}") for feat in features]
+            for row in values
+        ]
+        features2=[]
+        for f in features:
+            if f.startswith("n."):
+                f2=f.replace("n.","")
+            if f.startswith("elementId"):
+                f2="elementId"
+            features2.append(f2)
+        return features2, np.asarray(matrix)
 
-    def get_degree_of_relation_for_label(self, label: str) -> Tuple[Set[str], Dict[str, Dict[str, int]]]:
-        # returns degree of type for nodeId
-        # tabProp=self.getValidProperties(label)
-        relation_types = {rel["relationshipType"] for rel in self.execute_query("call db.relationshipTypes()")}
-        print(relation_types)
-
-        dict_rel = defaultdict(dict)
-        for rel in relation_types:
-            degrees = self.execute_query(f"MATCH (n:{label})-[r:{rel}]-() RETURN elementId(n), count(r) AS count")
-            # print(degrees)
+    def getDegreeOfRelationForLabel(self,label):
+        #returns degree of type for nodeId
+        #tabProp=self.getValidProperties(label)
+        str=''
+        types = self.execute_query("call db.relationshipTypes()")
+        rel=[ r['relationshipType'] for r in types ]
+        print(rel)
+        dictRel={}
+        for r in rel:
+            degrees = self.execute_query("MATCH (n:"+label+")-[r:"+r+"]-() RETURN elementId(n),count(r) AS count")
+            #print(degrees)
             for d in degrees:
-                dict_rel[d["elementId(n)"]][rel] = d["count"]
+                if d['elementId(n)'] in dictRel:
+                    dictRel[d['elementId(n)']][r] = d['count']
+                else:
+                    dictRel[d['elementId(n)']]={}
 
-        print(dict_rel)
-        relation_types.add("elementId")
-        return relation_types, dict_rel
+        print(dictRel)
+        rel.append("elementId")
+        return rel, dictRel
 
-    def get_best_page_rank(self, label: str, relationship: str):
+
+    def getBestPageRank(self, label, relationship):
         # retrieve the id of the node with highest page rank value
         # first remove graph if exists
         self.execute_query("CALL gds.graph.drop('myGraph', false) YIELD graphName;")
-        self.execute_query(f"""
-        MATCH (source:{label})-[:{relationship}]->(target:{label})
-        RETURN gds.graph.project('myGraph',  source,  target);
-        """)
-        result = self.execute_query("""
-        CALL gds.pageRank.stream('myGraph')
-        YIELD nodeId, score RETURN elementId(gds.util.asNode(nodeId)) AS elementId, score
-        ORDER BY score DESC, elementId ASC limit 1
-        """)
-        return next(result)["elementId"]
+        queryGraph="MATCH (source:"+label+")-[:"+relationship+"]->(target:"+label+") RETURN gds.graph.project(  'myGraph',  source,  target);"
+        queryResult=("CALL gds.pageRank.stream('myGraph') YIELD nodeId, score RETURN elementId(gds.util.asNode(nodeId)) AS elementId, score "
+                     "ORDER BY score DESC, elementId ASC limit 1;")
+        self.execute_query(queryGraph)
+        result = self.execute_query(queryResult)
+        return result[0]['elementId']
+
+
 
     def backtick_escape(self, label: str) -> str:
         """Escape backticks in a label so it can be safely backticked in Cypher."""
@@ -262,16 +280,22 @@ RETURN
   apoc.map.mergeList(allMaps) AS mergedNumericProperties;
     """
 
+
+
     def detect_relationship_cardinalities(self):
         """
         Detects instance-based relationship cardinalities (one-to-one, one-to-many,
         many-to-one, many-to-many) per (relType, startLabelSet, endLabelSet).
 
+        Args:
+            driver: An open neo4j.Driver instance (Neo4j Python driver v4/v5).
+            database: Optional database name (Neo4j Enterprise / multi-db).
+            use_primary_label: If True, classify by head(labels(n)) instead of the full label set.
+
         Returns:
             List of dict rows with keys:
             ['relType','startLabels','endLabels','startPopulation','endPopulation',
              'minOut','maxOut','minIn','maxIn','cardinality']
-
         """
         query = """
         // Detect instance-based cardinalities: one-to-one, one-to-many, many-to-one, many-to-many
@@ -328,15 +352,12 @@ RETURN
         """
 
         result = self.execute_query(query)
-        # return result
-        return (
-            [rec["relType"] for rec in result if rec["cardinality"] == "many-to-one"],
-            [rec["relType"] for rec in result if rec["cardinality"] == "many-to-many"],
-        )
+        #return result
+        return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one'],[rec['relType'] for rec in result if rec['cardinality']=='many-to-many']
 
     def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one) -> str:
         """
-        Warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
+        warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
         Traverses only along steps where the current node has exactly one outgoing
         relationship of that type (functional chain).
@@ -352,7 +373,8 @@ RETURN
         MATCH (n:`{lbl}`)
         OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
         WHERE
-          all(rel IN relationships(p) WHERE type(rel) in {many2one})
+          all(rel IN relationships(p) WHERE
+              type(rel) in {many2one})
         WITH n, collect(DISTINCT m) + n AS nodes
         WITH n,
              [x IN nodes |
@@ -371,7 +393,7 @@ RETURN
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def build_cypher_edges(self, label: str, max_depth: Optional[int], many2one) -> str:
+    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one) -> str:
         """
         warning, initially  not on schema, was : all(rel ... where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
@@ -389,7 +411,8 @@ RETURN
         MATCH (n:`{lbl}`)
         OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
         WHERE
-          all(rel IN relationships(p) WHERE type(rel) in {many2one})
+          all(rel IN relationships(p) WHERE
+               type(rel) in {many2one})
         WITH n,
             // Gather all relationships from all such paths, then deduplicate
         apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
@@ -414,45 +437,54 @@ RETURN
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def fetch_as_dataframe(
-        self, out, label: str, max_depth: Optional[int], many2one, checkedges: bool = True
-    ) -> pd.DataFrame:
-        query = self.build_cypher_nodes(label, max_depth, many2one)
-        result = self.execute_query(query)
-
+    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True) -> pd.DataFrame:
+        #cypher = self.build_cypher(label, max_depth)
+        #driver = GraphDatabase.driver(uri, auth=(user, password))
+        #try:
+        #    with driver.session() as session:
+        #result = session.run(cypher)
+        query=self.build_cypher_nodes(label, max_depth,many2one)
+        result=self.execute_query(query)
         if checkedges:
-            query_edge = self.build_cypher_edges(label, max_depth, many2one)
+            query_edge = self.build_cypher_edges(label, max_depth,many2one)
             result_edges = self.execute_query(query_edge)
-            result = itertools.chain(result_edges)
+            result=result+result_edges
+        rows = []
+        for rec in result:
+            root_id = rec["rootId"]
+            props = rec["mergedNumericProperties"] or {}
+            row = {"rootId": root_id}
+            row.update(props)
+            rows.append(row)
 
-        rows = ({"rootId": rec["rootId"], **rec.get("mergedNumericProperties", {})} for rec in result)
-
-        df = pd.DataFrame.from_records(rows).sort_values("rootId").reset_index(drop=True)
+        df = pd.DataFrame(rows).sort_values("rootId").reset_index(drop=True)
         df.to_csv(out, index=False)
         print(f"Saved {len(df)} rows to: {out}")
         print("Columns:", ", ".join(df.columns))
         return df
 
-    def get_avg_prop_by_elem(self, label: str) -> Generator[Dict[str, float], None, None]:
-        query = f"""
-        CALL {{
-            MATCH (n:{label})
-            WITH n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN $num_types] AS numericProps
-            RETURN avg(size(numericProps)) AS avgNodeNumericProps
-        }}
-        CALL {{
-            MATCH ()-[r]-()
-            WITH r, [k IN keys(r) WHERE apoc.meta.cypher.type(r[k]) IN $num_types] AS numericProps
-            RETURN avg(size(numericProps)) AS avgRelNumericProps
-        }}
-        RETURN avgNodeNumericProps, avgRelNumericProps
-        """
-        return self.execute_query(query, parameters={"num_types": NUMERIC_TYPES})
+    def getAvgPropByElem(self,label):
+        query=("CALL    {  MATCH(n:"+label+")    WITH     n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN['INTEGER', 'FLOAT']] AS "
+             +  " numericProps   RETURN    avg(size(numericProps))    AS    avgNodeNumericProps    }"
+             +  "    CALL    {        MATCH() - [r] - ()    WITH    r, [k IN keys(r) WHERE apoc.meta.cypher.type(r[k]) IN['INTEGER', 'FLOAT']]"
+             +  " AS    numericProps    RETURN    avg(size(numericProps))    AS    avgRelNumericProps    }"
+             +  "    RETURN    avgNodeNumericProps, avgRelNumericProps;")
+        result = self.execute_query(query)
+        return result
+
+    from typing import List, Dict
 
     def index_numeric_properties(self, label: str) -> List[Dict[str, object]]:
         """
         Create range indexes for all numeric (Integer/Float) properties
         of nodes with the given label.
+
+        Parameters
+        ----------
+        driver : neo4j.Driver
+            An active Neo4j driver (neo4j>=4.3/5.x).
+        label : str
+            The node label to inspect (e.g., "City").
 
         Returns
         -------
@@ -461,7 +493,6 @@ RETURN
             - property: str         # property name
             - index_name: str       # created or reused index name
             - created: bool         # True if a new index was created
-
         """
         # 1) Discover numeric properties for the label using built-in metadata
         discover_props_cypher = """
@@ -496,155 +527,126 @@ RETURN
 if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
-    fileResults = "reports/results_" + formatted_time + ".csv"
-    column_names = [
-        "database",
-        "N",
-        "E",
-        "label",
-        "indicators#",
-        "nodes#",
-        "avgLabelProp",
-        "time_Cardinalities",
-        "time_Indicators",
-        "time_Validation",
-        "time_Partition",
-        "partition",
-    ]
+    fileResults = 'reports/results_' + formatted_time + '.csv'
+    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
-    uri = "bolt://localhost:7687"
-    user = "neo4j"
-    password = "airports"
-    tab_databases = ["airports", "icijleaks", "recommendations"]
-    dict_databases_labels = {
-        "airports": ["Airport", "Country", "City"],
-        "recommendations": ["Actor", "Movie", "Director"],
-        # ,"icijleaks":["Entity", "Intermediary", "Officer"]
-        "icijleaks": ["Intermediary"],
-    }
-    dict_databases_homes = {
-        "airports": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
-        "recommendations": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
-        "icijleaks": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179",
-    }
-    dict_databases_numbers = {  # number of nodes, number of edges, avg number of properties nodes/edges
-        "airports": [52944, 136948, 3.99, 0.86],
-        "recommendations": [28863, 166261, 1.6, 1.2],
-        "icijleaks": [20165233, 339267, 1, 0],
+    uri="bolt://localhost:7687"
+    user="neo4j"
+    #password="airports"
+    #tab_databases=["airports","icijleaks","recommendations"]
+    dict_databases_labels={#"airports":["Airport","Country","City"],
+                           "airportnew": ["Airport", "Country", "City"],
+                           "recommendations":["Actor","Movie","Director"],
+                            "icijleaks":["Entity", "Intermediary", "Officer"]
+                            #,"icijleaks": ["Intermediary"]
+                           }
+    dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
+                         "airportnew":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-786ac4bd-9d03-4fda-b510-9230a5f0f5fa",
+                          "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
+                          "icijleaks":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179"}
+    dict_databases_numbers={ #number of nodes, number of edges, avg number of properties nodes/edges
+        "airports":[52944,136948,3.99,0.86],
+        "airportnew":[52944,136948,4.39,2.13],
+        "recommendations":[28863,166261,1.6,1.2],
+        "icijleaks":[20165233,339267,1,0]
     }
     # validates and transform (scale) candidate indicators
-    null_threshold = 0.5  # 0.5
-    distinct_low = 0.000001  # 0.000001
-    distinct_high = 0.95  # 0.95
-    correlation_threshold = 0.95  # 0.95
+    null_threshold = 0.5 #0.5
+    distinct_low = 0.000001 #0.000001
+    distinct_high = 0.95 #0.95
+    correlation_threshold = 0.95 #0.95
 
     # True = remove lines with at least one null value
     NONULLS = True
 
-    # label
-    # label=dict_databases_labels["airports"][0]
+    #label
+    #label=dict_databases_labels["airports"][0]
 
-    for password in dict_databases_labels:
-        print("database: ", password)
+    for run in range(4):
+        for password in dict_databases_labels.keys():
+            print("database: ", password)
 
-        stop_current_dbms()
-        dbspec = DbSpec(password, dict_databases_homes[password], uri, user, password)
-        start_dbms(dbspec)
+            stop_current_dbms()
+            dbspec = DbSpec(password, dict_databases_homes[password], uri, user, password)
+            start_dbms(dbspec)
 
-        with Neo4jConnector(uri, user, password) as db:
-            # finds relationship cardinalities
-            print("Finding cardinalities")
-            start_time = time.time()
-            manyToOne, manyToMany = db.detect_relationship_cardinalities()
-            end_time = time.time()
-            timings_cardinalities = end_time - start_time
+            with Neo4jConnector(uri, user, password) as db:
 
-            for label in dict_databases_labels[password]:
-                print("Label: ", label)
-
+                # finds relationship cardinalities
+                print("Finding cardinalities")
                 start_time = time.time()
-
-                # get context and candidate indicators
-                # get * relationships for label
-                dfm2m = aggregate_m2m_properties_for_label(
-                    db.get_driver(),
-                    label,
-                    agg="sum",
-                    include_relationship_properties=True,
-                )
-
-                # get 1 relationships for label (and save those to csv)
-                out = "sample_data/" + label + "_indicators.csv"
-                # do not send queries for edges if they do not have properties
-                df121 = db.fetch_as_dataframe(out, label, 10, manyToOne, dict_databases_numbers[password][3] != 0)
-                # out join * and 1
-                dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
-
-                # get in degrees of label
-                dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
-
-                # then outer join with dftemp
-                dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
-
+                manyToOne, manyToMany = db.detect_relationship_cardinalities()
                 end_time = time.time()
-                indicatorsTimings = end_time - start_time
+                timings_cardinalities = end_time - start_time
 
-                # validation
-                start_time = time.time()
-                # first remove correlated columns
-                dffinal = remove_correlated_columns(dffinal, correlation_threshold)
-                # then check for variance and nulls, and scale
-                keep, report = process_dataframe(dffinal, null_threshold, distinct_low, distinct_high)
+                for label in dict_databases_labels[password]:
+                    print("Label: ",label)
 
-                processedIndicators = f"sample_data/{label}_indicators_processed.csv"
-                processingReport = f"reports/{label}_indicators_processed.csv"
+                    start_time = time.time()
 
-                # if we remove lines with at least one null
-                if NONULLS:
-                    keep = utility.remove_rows_with_nulls(keep)
-                    processedIndicators = f"sample_data/{label}_indicators_processed_nonulls.csv"
+                    # get context and candidate indicators
+                    # get * relationships for label
+                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
 
-                # contextualization
-                dist = schema_hops_from_label(
-                    db.get_driver(),
-                    label,
-                    include_relationship_types=True,
-                    directed=False,
-                )
-                keep = weight_df_by_schema_hops(keep, dist)
+                    # get 1 relationships for label (and save those to csv)
+                    out="sample_data/"+label+"_indicators.csv"
+                    #do not send queries for edges if they do not have properties
+                    if dict_databases_numbers[password][3] == float(0):
+                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,False)
+                    else:
+                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,True)
+                    #out join * and 1
+                    dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
-                export(keep, report, processedIndicators, processingReport)
+                    # get in degrees of label
+                    dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
 
-                end_time = time.time()
-                validationTimings = end_time - start_time
-                # print('Completed in ', timings, 'seconds')
+                    # then outer join with dftemp
+                    dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
 
-                # call laplacian heuristics on data
-                start_time = time.time()
-                partition = score(processedIndicators)
-                end_time = time.time()
-                timingsPartition = end_time - start_time
+                    end_time = time.time()
+                    indicatorsTimings = end_time - start_time
 
-                # computes avg numerical properties for node type label
-                avgprop = next(db.get_avg_prop_by_elem(label))["avgNodeNumericProps"]
+                    # validation
+                    start_time = time.time()
+                    # first remove correlated columns
+                    dffinal=remove_correlated_columns(dffinal,correlation_threshold)
+                    # then check for variance and nulls, and scale
+                    keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
 
-                # save to result dataframe
-                dfresults.loc[len(dfresults)] = [
-                    password,
-                    dict_databases_numbers[password][0],
-                    dict_databases_numbers[password][1],
-                    label,
-                    keep.shape[1] - 1,
-                    len(keep),
-                    avgprop,
-                    timings_cardinalities,
-                    indicatorsTimings,
-                    validationTimings,
-                    timingsPartition,
-                    partition,
-                ]
+                    processedIndicators="sample_data/"+label+"_indicators_processed.csv"
+                    processingReport="reports/"+label+"_indicators_processed.csv"
 
-        stop_dbms(dbspec)
-    dfresults.to_csv(fileResults, mode="a", header=True)
+                    # if we remove lines with at least one null
+                    if NONULLS:
+                        keep=utility.remove_rows_with_nulls(keep)
+                        processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+
+                    # contextualization
+                    dist = schema_hops_from_label(db.getDriver(), label , include_relationship_types=True, directed=False)
+                    keep = weight_df_by_schema_hops(keep, dist)
+
+                    export(keep,report,processedIndicators,processingReport)
+
+
+                    end_time = time.time()
+                    validationTimings = end_time - start_time
+                    #print('Completed in ', timings, 'seconds')
+
+                    #call laplacian heuristics on data
+                    start_time = time.time()
+                    #partition=score(processedIndicators)
+                    partition={}
+                    end_time = time.time()
+                    timingsPartition = end_time - start_time
+
+                    #computes avg numerical properties for node type label
+                    avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
+
+                    #save to result dataframe
+                    dfresults.loc[len(dfresults)] = [run,password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, indicatorsTimings, validationTimings,timingsPartition,partition]
+                    #dfresults.to_csv('reports/tempres.csv', mode='a', header=True)
+            stop_dbms(dbspec)
+    dfresults.to_csv(fileResults, mode='a', header=True)

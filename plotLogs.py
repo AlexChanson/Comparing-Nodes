@@ -133,9 +133,10 @@ def compute_score_range(df_range: pd.DataFrame, df_runs: pd.DataFrame) -> pd.Dat
     return out.sort_values(["data","heuristic"])
 
 def compute_mean_ari(df_runs: pd.DataFrame) -> pd.DataFrame:
+    """For each (data, k, heuristic), compute mean and std of pairwise Adjusted Rand Index across runs."""
     sub = df_runs.dropna(subset=["clusters"]).copy()
     rows = []
-    for (data, k, heur), g in sub.groupby(["data","k","heuristic"]):
+    for (data, k, heur), g in sub.groupby(["data", "k", "heuristic"]):
         items = list(g.itertuples(index=False))
         if len(items) < 2:
             continue
@@ -143,19 +144,26 @@ def compute_mean_ari(df_runs: pd.DataFrame) -> pd.DataFrame:
         for r1, r2 in combinations(items, 2):
             c1, c2 = r1.clusters, r2.clusters
             if c1 is None or c2 is None: continue
-            if len(c1) != len(c2):      continue
+            if len(c1) != len(c2):       continue
             try:
                 aris.append(adjusted_rand_score(c1, c2))
             except Exception:
                 pass
         if aris:
-            rows.append({"data": data, "k": k, "heuristic": heur, "mean_ARI": float(np.mean(aris)),
-                         "pairs_used": len(aris)})
+            rows.append({
+                "data": data,
+                "k": k,
+                "heuristic": heur,
+                "mean_ARI": float(np.mean(aris)),
+                "std_ARI": float(np.std(aris, ddof=1)) if len(aris) > 1 else 0.0,
+                "pairs_used": len(aris)
+            })
     df = pd.DataFrame(rows)
     if not df.empty:
         df["heuristic"] = pd.Categorical(df["heuristic"], categories=HEUR_ORDER, ordered=True)
-        df = df.sort_values(["data","k","heuristic"])
+        df = df.sort_values(["data", "k", "heuristic"])
     return df
+
 
 # ---------- Plot helpers: bars (mean±std) and box plots from run-level ----------
 
@@ -263,27 +271,158 @@ def plot_metric_views(df_runs: pd.DataFrame, agg: pd.DataFrame, outdir: Path, me
         ax.set_xlabel("n (data size)"); ax.set_ylabel(label)
         _savefig(fig, outdir / f"{metric}_bar_byNHeuristic.png")
 
+# --- helper: put errorbars exactly over each bar (in draw order) ---
+def _errorbars_over_bars(ax, yerrs):
+    """
+    Add vertical error bars centered on each bar in `ax`, matching the draw order
+    of the bars. `yerrs` must have the same length as the number of bars.
+    """
+    bars = [p for p in ax.patches if hasattr(p, "get_width")]  # all drawn bars
+    if len(bars) != len(yerrs):
+        # If lengths ever mismatch, align by the min length to avoid crashes
+        n = min(len(bars), len(yerrs))
+        bars = bars[:n]
+        yerrs = yerrs[:n]
+    for p, e in zip(bars, yerrs):
+        if pd.isna(e) or e is None:
+            e = 0.0
+        x = p.get_x() + p.get_width() / 2.0
+        y = p.get_height()
+        ax.errorbar(x, y, yerr=e, fmt="none", capsize=4, color="black", lw=1, zorder=5)
 
 def plot_mean_ari(df_mean_ari: pd.DataFrame, outdir: Path):
+    """
+    Bars with correctly-aligned ±std error bars:
+      - Overall (pooled across data): for each (k, heuristic), bar = mean of mean_ARI across data,
+        error = std of mean_ARI across data.
+      - Per data: for each (k, heuristic), bar = mean_ARI, error = std_ARI (within-data pairwise std).
+    """
     if df_mean_ari.empty:
         return
-    # Overall (pooled across data): average mean_ARI per (k, heuristic)
-    overall = df_mean_ari.groupby(["k","heuristic"])["mean_ARI"].mean().reset_index()
+
+    # consistent ordering
+    k_order = sorted(df_mean_ari["k"].unique().tolist())
+    heur_order = HEUR_ORDER
+    df_mean_ari = df_mean_ari.copy()
+    df_mean_ari["heuristic"] = pd.Categorical(df_mean_ari["heuristic"], categories=heur_order, ordered=True)
+
+    # ===== Overall across data =====
+    overall = (
+        df_mean_ari
+        .groupby(["k", "heuristic"], as_index=False)
+        .agg(mean_ARI=("mean_ARI", "mean"), std_over_data=("mean_ARI", "std"))
+        .sort_values(["k", "heuristic"])
+    )
+    overall["k"] = pd.Categorical(overall["k"], categories=k_order, ordered=True)
+
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.barplot(data=overall, x="k", y="mean_ARI", hue="heuristic", dodge=True, ax=ax)
+    # draw bars (no errorbar here)
+    sns.barplot(
+        data=overall,
+        x="k", y="mean_ARI", hue="heuristic",
+        dodge=True, errorbar=None, ax=ax
+    )
+    # add error bars exactly over bars, in draw order
+    _errorbars_over_bars(ax, overall["std_over_data"].fillna(0.0).tolist())
+
     ax.set_title("Mean ARI by k and heuristic (pooled across data)")
     ax.set_xlabel("k (clusters)")
-    ax.set_ylabel("Mean ARI")
+    ax.set_ylabel("Mean ARI ± std (across data)")
     savefig(fig, outdir / "meanARI_bar_byKHeuristic_overall.png")
 
-    # Optional: small multiples per data
-    for data, g in df_mean_ari.groupby("data"):
+    # ===== Per-data small multiples =====
+    for data_val, g in df_mean_ari.groupby("data"):
+        gg = g.sort_values(["k", "heuristic"]).copy()
+        gg["k"] = pd.Categorical(gg["k"], categories=k_order, ordered=True)
+
         fig, ax = plt.subplots(figsize=(10, 6))
-        sns.barplot(data=g, x="k", y="mean_ARI", hue="heuristic", dodge=True, ax=ax)
-        ax.set_title(f"Mean ARI by k and heuristic — data={data}")
+        sns.barplot(
+            data=gg,
+            x="k", y="mean_ARI", hue="heuristic",
+            dodge=True, errorbar=None, ax=ax
+        )
+        # here the error is the within-data pairwise std we computed earlier
+        _errorbars_over_bars(ax, gg["std_ARI"].fillna(0.0).tolist())
+
+        ax.set_title(f"Mean ARI by k and heuristic — data={data_val}")
         ax.set_xlabel("k (clusters)")
-        ax.set_ylabel("Mean ARI")
-        savefig(fig, outdir / f"meanARI_bar_byKHeuristic_{data}.png")
+        ax.set_ylabel("Mean ARI ± std (pairwise within data)")
+        savefig(fig, outdir / f"meanARI_bar_byKHeuristic_{data_val}.png")
+
+
+def plot_score_range_report(range_report: pd.DataFrame, outdir: Path):
+    """
+    Visualize, for each 'data', the overall score range [min, max] and where each heuristic's
+    mean best score sits inside that range. Saves:
+      - scoreRange_abs_{data}.png  (absolute scores)
+      - scoreRange_norm_{data}.png (normalized [0,1] positions)
+      - scoreRange_norm_overview.png (all data stacked, normalized)
+    """
+    if range_report is None or range_report.empty:
+        return
+
+    ensure_dir(outdir)
+
+    # Make sure heuristics have a stable plotting order
+    heur_order = ["lp", "ls", "rd", "sls"]
+    rr = range_report.copy()
+    rr["heuristic"] = pd.Categorical(rr["heuristic"], categories=heur_order, ordered=True)
+
+    # Small vertical offsets to avoid marker overlap on a single baseline
+    offsets = {h: off for h, off in zip(heur_order, [-0.30, -0.10, 0.10, 0.30])}
+
+    # --- Per-data plots ---
+    for data_val, g in rr.groupby("data", sort=False):
+        g = g.sort_values("heuristic")
+        score_min = float(g["score_min"].iloc[0])
+        score_max = float(g["score_max"].iloc[0])
+
+        # ===== Absolute scale =====
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        # baseline segment [min, max]
+        ax.hlines(y=0, xmin=score_min, xmax=score_max, linewidth=3)
+        # add heuristic points with small vertical offsets + labels
+        pad = (score_max - score_min) * 0.05 if score_max > score_min else 1.0
+        for row in g.itertuples(index=False):
+            y = offsets.get(row.heuristic, 0.0)
+            ax.scatter(row.heur_best_mean, y, s=60)
+            ax.text(row.heur_best_mean, y + 0.05, str(row.heuristic), ha="center", va="bottom", fontsize=9)
+
+        ax.set_title(f"Score range and heuristic positions — data={data_val}")
+        ax.set_xlabel("Score (absolute)")
+        ax.set_yticks([])  # cosmetic
+        ax.set_xlim(score_min - pad, score_max + pad)
+        _savefig(fig, outdir / f"scoreRange_abs_{data_val}.png")
+
+        # ===== Normalized [0,1] =====
+        fig, ax = plt.subplots(figsize=(10, 3.8))
+        ax.hlines(y=0, xmin=0.0, xmax=1.0, linewidth=3)
+        for row in g.itertuples(index=False):
+            y = offsets.get(row.heuristic, 0.0)
+            x = row.position_0_1
+            ax.scatter(x, y, s=60)
+            ax.text(x, y + 0.05, str(row.heuristic), ha="center", va="bottom", fontsize=9)
+
+        ax.set_title(f"Normalized score range [0–1] — data={data_val}")
+        ax.set_xlabel("Position in range (0 = min, 1 = max)")
+        ax.set_yticks([])
+        ax.set_xlim(-0.05, 1.05)
+        _savefig(fig, outdir / f"scoreRange_norm_{data_val}.png")
+
+    # --- Overview across all data in normalized space ---
+    # One strip/swarm-like chart: y=data, x=position_0_1, hue=heuristic
+    fig, ax = plt.subplots(figsize=(10, max(4, 0.4 * rr["data"].nunique() + 2)))
+    # Use stripplot (no dodge) to keep it clean; points carry heuristic hue
+    sns.stripplot(data=rr, x="position_0_1", y="data", hue="heuristic", ax=ax, jitter=False, dodge=True)
+    # Draw faint baseline [0,1] for each row
+    for yi, data_cat in enumerate(ax.get_yticklabels()):
+        ax.hlines(y=yi, xmin=0.0, xmax=1.0, linewidth=2, alpha=0.25, zorder=0)
+    ax.set_title("Heuristic positions within normalized score ranges (all data)")
+    ax.set_xlabel("Position in range (0 = min, 1 = max)")
+    ax.set_xlim(-0.05, 1.05)
+    ax.legend(title="Heuristic", bbox_to_anchor=(1.02, 1), loc="upper left")
+    _savefig(fig, outdir / "scoreRange_norm_overview.png")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Parse experiment logs and plot bar/box charts with Seaborn.")
@@ -305,6 +444,8 @@ def main():
 
     range_report = compute_score_range(df_range, df_runs)
     range_report.to_csv(reps_dir / "score_range_report_by_data.csv", index=False)
+
+    plot_score_range_report(range_report, plots_dir)
 
     df_mean_ari = compute_mean_ari(df_runs)
     df_mean_ari.to_csv(reps_dir / "mean_ari_by_data_k_heuristic.csv", index=False)

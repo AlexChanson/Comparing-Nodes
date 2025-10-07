@@ -1,5 +1,6 @@
 from typing import Dict, List, Set, Tuple, Optional
 from collections import deque
+from neo4j import GraphDatabase
 
 def schema_hops_from_label(
     driver,
@@ -223,16 +224,17 @@ def weight_df_by_schema_hops(
     return out
 
 
-#from neo4j import GraphDatabase
 
-#driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j","airports"))
+if __name__ == "__main__":
 
-#dist = schema_hops_from_label(driver, "Airport", include_relationship_types=True, directed=False)
-#print(dist)
-#print("Label hops from Airport:")
-#for k, v in sorted(dist["labels"].items()):
-#    print(f"  {k:20s} -> {v}")
+    driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j","airports"))
 
-#print("\nRel-type hops from Airport:")
-#for k, v in sorted(dist["relationships"].items()):
-#    print(f"  {k:20s} -> {v}")
+    dist = schema_hops_from_label(driver, "Airport", include_relationship_types=True, directed=False)
+    print(dist)
+    print("Label hops from Airport:")
+    for k, v in sorted(dist["labels"].items()):
+        print(f"  {k:20s} -> {v}")
+
+    print("\nRel-type hops from Airport:")
+    for k, v in sorted(dist["relationships"].items()):
+        print(f"  {k:20s} -> {v}")
