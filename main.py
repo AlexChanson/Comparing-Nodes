@@ -2,8 +2,6 @@ from datasets import *
 from b_and_b import *
 from clustering import *
 from utility import *
-
-from multiprocessing import Pool
 from copy import copy
 import numpy as np
 from numpy.typing import NDArray
@@ -13,7 +11,6 @@ import argparse
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 import time
-
 
 from numba import njit
 #from PrettyPrint import PrettyPrintTree
@@ -277,6 +274,8 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
     parser.add_argument("-m", "--method", default="sls", help="Method to use (ls : local search, exp : full tree enumeration, sls: 'smart' start local search)")
+    parser.add_argument("-p", "--path", default="", help="Path to custom dataset")
+    parser.add_argument("-d", "--delimiter", default=",", help="Delimiter for custom dataset")
     args = parser.parse_args()
 
     if args.dataset == "iris":
@@ -289,6 +288,8 @@ if __name__ == '__main__':
         features, data = load_directors()
     elif args.dataset == "actors":
         features, data = load_actors()
+    elif args.dataset == "custom":
+        features, data = load_custom(args.path, args.delimiter)
 
     data = normalize(data)
 
