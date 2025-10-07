@@ -8,13 +8,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 #### Using custom datasets
-To use your own data you'll need to setup the graph in a local Neo4J database (using Neo4J desktop for exemple) in order to process the indicator extraction. We only tested with Neo4J 5.x on Mac OS and Linux. 
+Sample data is provided in this repository. To use your own data you'll need to setup the graph in a local Neo4J database (using Neo4J desktop for exemple) in order to process the indicator extraction. We only tested with Neo4J 5.x on Mac OS and Linux. 
 ## Indicators extraction
 
 To extract indicators from property graphs use the `db-neo4j.py` script.
 Several variables need to be set in the script :
  - dict_databases_homes : the path to the Neo4J DBs installation(s)
- - TODO
+ - dict_databases_labels : the labels of the graph to process for each database
+ - null_threshold, distinct_low, distinct_high, correlation_threshold : thresholds to discard indicators 
+ - NONULLS : boolean whether or not to keep nodes with null values
 
 ## Solving the Partiton/Clustering problem
 
