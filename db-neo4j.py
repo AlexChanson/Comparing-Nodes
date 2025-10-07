@@ -91,206 +91,15 @@ class Neo4jConnector:
         """Ensure the driver is closed on exit."""
         self.close()
 
-    def getNumericalProperties(self, label):
-        """returns the names of numerical properties of nodes with label"""
-        result=[]
-        nodes = self.execute_query("MATCH (n:"+label+") RETURN apoc.meta.cypher.types(n)")
-        for n in nodes:
-            for p in n['apoc.meta.cypher.types(n)']:
-                if n['apoc.meta.cypher.types(n)'][p]=='INTEGER' or n['apoc.meta.cypher.types(n)'][p]=='FLOAT':
-                    result.append(p)
-        return set(result) #ugly fixme
-
-    def varianceOfProperty(self, property,label):
-        # get variance indicators of property for nodes of label
-        # returns nb values, nb distinct values, variance of sample, variance of population, coefficient of variation
-        # first need all the values
-        values = self.execute_query("MATCH (n:" + label + ") RETURN n."+property)
-        str="n."+property
-        tabVal=[]
-        for v in values:
-            if v[str]!=None:
-                tabVal.append(v[str])
-        return tabVal,len(tabVal),len(set(tabVal)),variance(tabVal),pvariance(tabVal),variation(tabVal)
-
-    def getAllPropFor(self,label)->List[Dict[str, Any]]:
-        result = self.getNumericalProperties(label)
-
-
-    def getValidProperties(self,label):
-        result=[]
-        tabProp=self.getNumericalProperties(label)
-        for p in tabProp:
-            tab,nb,nbd,v,pv,cv=self.varianceOfProperty(p,label)
-            if nbd<nb and nbd>1: #fixme check better ways of validating
-                result.append(p)
-        return result
-
-    def getRelationCardinality(self):
-        query = ("MATCH (x)-[r]->(y) " 
-                "WITH type(r) AS name, head(labels(x)) AS label_x, head(labels(y)) " 
-                "AS label_y, count(distinct x) AS count_x, count(distinct y) "
-                "AS count_y, count(distinct r) AS count_r "
-                "RETURN name,"
-                "    CASE WHEN count_y < count_r THEN label_x ELSE label_y END AS source,"
-                "    CASE WHEN count_y < count_r THEN label_y ELSE label_x END AS target,"
-                "    count_x < count_r AND count_y < count_r AS is_many_to_many")
-        carinalities=self.execute_query(query)
-        dictRel={}
-        dictRel['manyToMany']=[]
-        dictRel['oneToMany']=[]
-        for c in carinalities:
-            if c['is_many_to_many']==True:
-                dictRel['manyToMany'].append(c['name'])
-            else:
-                dictRel['oneToMany'].append(c['name'])
-        return dictRel
-
-    def createDatasetForLabel(self,label):
-        tabProp=self.getValidProperties(label)
-        str='elementId(n),'
-        for p in tabProp:
-            str=str+'n.'+p+','
-        str=str[:-1]
-        values = self.execute_query("MATCH (n:" + label + ") RETURN "+str)
-        # transform into features + matrix
-        # 1. Extract feature names from the keys of the first dict, stripping the "n." prefix
-#        features = [key.split('.', 1)[1] for key in values[0].keys()]
-        features = [key for key in values[0].keys()]
-
-        # 2. Build the matrix of values, row by row
-        matrix = [
-            [row.get(f"{feat}") for feat in features]
-            for row in values
-        ]
-        features2=[]
-        for f in features:
-            if f.startswith("n."):
-                f2=f.replace("n.","")
-            if f.startswith("elementId"):
-                f2="elementId"
-            features2.append(f2)
-        return features2, np.asarray(matrix)
-
-    def getDegreeOfRelationForLabel(self,label):
-        #returns degree of type for nodeId
-        #tabProp=self.getValidProperties(label)
-        str=''
-        types = self.execute_query("call db.relationshipTypes()")
-        rel=[ r['relationshipType'] for r in types ]
-        print(rel)
-        dictRel={}
-        for r in rel:
-            degrees = self.execute_query("MATCH (n:"+label+")-[r:"+r+"]-() RETURN elementId(n),count(r) AS count")
-            #print(degrees)
-            for d in degrees:
-                if d['elementId(n)'] in dictRel:
-                    dictRel[d['elementId(n)']][r] = d['count']
-                else:
-                    dictRel[d['elementId(n)']]={}
-
-        print(dictRel)
-        rel.append("elementId")
-        return rel, dictRel
-
-
-    def getBestPageRank(self, label, relationship):
-        # retrieve the id of the node with highest page rank value
-        # first remove graph if exists
-        self.execute_query("CALL gds.graph.drop('myGraph', false) YIELD graphName;")
-        queryGraph="MATCH (source:"+label+")-[:"+relationship+"]->(target:"+label+") RETURN gds.graph.project(  'myGraph',  source,  target);"
-        queryResult=("CALL gds.pageRank.stream('myGraph') YIELD nodeId, score RETURN elementId(gds.util.asNode(nodeId)) AS elementId, score "
-                     "ORDER BY score DESC, elementId ASC limit 1;")
-        self.execute_query(queryGraph)
-        result = self.execute_query(queryResult)
-        return result[0]['elementId']
-
-
 
     def backtick_escape(self, label: str) -> str:
         """Escape backticks in a label so it can be safely backticked in Cypher."""
         return label.replace("`", "``")
 
-    def build_cypher_bad(self, label: str, max_depth: Optional[int]) -> str:
-        lbl = self.backtick_escape(label)
-        depth = "" if max_depth is None else str(int(max_depth))
-
-        return f"""
-    // Numeric props from nodes + rels along functional (unique-outgoing) paths,
-    // with path-based prefixes. 
-    MATCH (n:{lbl})
-    WITH n, head(labels(n)) AS rootLabel
-
-    OPTIONAL MATCH p = (n)-[*0..]->(m)
-    WHERE
-    // only traverse unique-outgoing (functional) hops
-    all(rel IN relationships(p)
-    WHERE apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
-    // avoid revisiting nodes/edges
-    AND size(relationships(p)) = size(apoc.coll.toSet(relationships(p)))
-    AND size(nodes(p))        = size(apoc.coll.toSet(nodes(p)))
-
-    WITH n, rootLabel, p, nodes(p) AS ns, relationships(p) AS rs, last(nodes(p)) AS m
-
-    // Build prefix for END NODE of this path: City__REL1__Label2__REL2__Label3
-    WITH n, rootLabel, ns, rs, m,
-     reduce(pref = rootLabel,
-            i IN (CASE WHEN size(rs)=0 THEN [] ELSE range(0, size(rs)-1) END) |
-              pref + '__' + apoc.rel.type(rs[i]) + '__' + head(labels(ns[i+1]))
-     ) AS nodePrefix
-
-    // Map of numeric properties for the end node (prefixed by the full path)
-    WITH n, rootLabel, ns, rs,
-     apoc.map.fromPairs(
-       [k IN keys(m)
-        WHERE apoc.meta.cypher.type(m[k]) IN ['INTEGER','FLOAT','Number','Long','Double']
-        | [nodePrefix + '_' + k, m[k]]
-       ]
-     ) AS nodeMap,
-     ns AS ns_keep, rs AS rs_keep
-
-// Build maps for EACH relationship's numeric properties along this path
-WITH n, rootLabel, ns_keep AS ns, rs_keep AS rs, [nodeMap] AS collected
-UNWIND (CASE WHEN size(rs)=0 THEN [] ELSE range(0, size(rs)-1) END) AS j
-WITH n, rootLabel, ns, rs, collected,
-     apoc.map.fromPairs(
-       [k IN keys(rs[j])
-        WHERE apoc.meta.cypher.type(rs[j][k]) IN ['INTEGER','FLOAT','Number','Long','Double']
-        |
-          // Prefix up to and including the j-th relationship:
-          // City__REL1__Label2__...__RELj_prop
-          [ reduce(pref = rootLabel,
-                   i IN (CASE WHEN j=0 THEN [] ELSE range(0, j-1) END) |
-                     pref + '__' + apoc.rel.type(rs[i]) + '__' + head(labels(ns[i+1]))
-            ) + '__' + apoc.rel.type(rs[j]) + '_' + k,
-            rs[j][k]
-          ]
-       ]
-     ) AS relMap
-
-// ---- separate aggregation from combination to avoid implicit-grouping error
-WITH n, collected, collect(relMap) AS relMaps
-WITH n, collected + relMaps AS mapsPerPath
-
-// Now combine all paths for the same root node n
-WITH n, collect(mapsPerPath) AS mapsPerPathList
-WITH n, apoc.coll.flatten(mapsPerPathList) AS allMaps
-RETURN
-  id(n) AS rootId,
-  apoc.map.mergeList(allMaps) AS mergedNumericProperties;
-    """
-
-
-
     def detect_relationship_cardinalities(self):
         """
         Detects instance-based relationship cardinalities (one-to-one, one-to-many,
         many-to-one, many-to-many) per (relType, startLabelSet, endLabelSet).
-
-        Args:
-            driver: An open neo4j.Driver instance (Neo4j Python driver v4/v5).
-            database: Optional database name (Neo4j Enterprise / multi-db).
-            use_primary_label: If True, classify by head(labels(n)) instead of the full label set.
 
         Returns:
             List of dict rows with keys:
@@ -438,17 +247,11 @@ RETURN
         #                                       "LIST OF Long","LIST OF Double"]
 
     def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True) -> pd.DataFrame:
-        #cypher = self.build_cypher(label, max_depth)
-        #driver = GraphDatabase.driver(uri, auth=(user, password))
-        #try:
-        #    with driver.session() as session:
-        #result = session.run(cypher)
         query=self.build_cypher_nodes(label, max_depth,many2one)
         result=self.execute_query(query)
         if checkedges:
             query_edge = self.build_cypher_edges(label, max_depth,many2one)
-            result_edges = self.execute_query(query_edge)
-            result=result+result_edges
+            result.extend(self.execute_query(query_edge))
         rows = []
         for rec in result:
             root_id = rec["rootId"]
@@ -472,55 +275,6 @@ RETURN
         result = self.execute_query(query)
         return result
 
-    from typing import List, Dict
-
-    def index_numeric_properties(self, label: str) -> List[Dict[str, object]]:
-        """
-        Create range indexes for all numeric (Integer/Float) properties
-        of nodes with the given label.
-
-        Parameters
-        ----------
-        driver : neo4j.Driver
-            An active Neo4j driver (neo4j>=4.3/5.x).
-        label : str
-            The node label to inspect (e.g., "City").
-
-        Returns
-        -------
-        List[Dict[str, object]]
-            One dict per property with keys:
-            - property: str         # property name
-            - index_name: str       # created or reused index name
-            - created: bool         # True if a new index was created
-        """
-        # 1) Discover numeric properties for the label using built-in metadata
-        discover_props_cypher = """
-        CALL db.schema.nodeTypeProperties() 
-        YIELD nodeLabels, propertyName, propertyTypes
-        WHERE $label IN nodeLabels 
-          AND any(t IN propertyTypes WHERE t IN ['Integer','Float'])
-        RETURN collect(DISTINCT propertyName) AS props
-        """
-
-        # 2) Create (if not exists) a range index for each numeric property
-        results: List[Dict[str, object]] = []
-        with self.driver.session() as session:
-            rec = session.run(discover_props_cypher, {"label": label}).single()
-            props = rec["props"] if rec and rec.get("props") else []
-
-            for prop in props:
-                # Safe names; quote label/prop in Cypher; index name is optional but helpful
-                idx_name = f"idx_{label}_{prop}".replace("`", "").lower()
-                create_idx_cypher = f"""
-                CREATE INDEX {idx_name} IF NOT EXISTS
-                FOR (n:`{label}`) ON (n.`{prop}`)
-                """
-                summary = session.run(create_idx_cypher).consume()
-                created = summary.counters.indexes_added > 0
-                results.append({"property": prop, "index_name": idx_name, "created": created})
-
-        return results
 
 
 # Example usage:
@@ -534,14 +288,13 @@ if __name__ == "__main__":
     #  URI/user/password
     uri="bolt://localhost:7687"
     user="neo4j"
-    #password="airports"
-    #tab_databases=["airports","icijleaks","recommendations"]
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            "airportnew": ["Airport", "Country", "City"],
                            "recommendations":["Actor","Movie","Director"],
                             "icijleaks":["Entity", "Intermediary", "Officer"]
                             #,"icijleaks": ["Intermediary"]
                            }
+    dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
                          "airportnew":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-786ac4bd-9d03-4fda-b510-9230a5f0f5fa",
                           "recommendations":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
@@ -565,14 +318,14 @@ if __name__ == "__main__":
     #label=dict_databases_labels["airports"][0]
 
     for run in range(4):
-        for password in dict_databases_labels.keys():
-            print("database: ", password)
+        for db_name in dict_databases_labels.keys():
+            print("database: ", db_name)
 
             stop_current_dbms()
-            dbspec = DbSpec(password, dict_databases_homes[password], uri, user, password)
+            dbspec = DbSpec(db_name, dict_databases_homes[db_name], uri, user, dict_databases_passwords[db_name])
             start_dbms(dbspec)
 
-            with Neo4jConnector(uri, user, password) as db:
+            with Neo4jConnector(uri, user, db_name) as db:
 
                 # finds relationship cardinalities
                 print("Finding cardinalities")
@@ -581,7 +334,7 @@ if __name__ == "__main__":
                 end_time = time.time()
                 timings_cardinalities = end_time - start_time
 
-                for label in dict_databases_labels[password]:
+                for label in dict_databases_labels[db_name]:
                     print("Label: ",label)
 
                     start_time = time.time()
@@ -593,7 +346,7 @@ if __name__ == "__main__":
                     # get 1 relationships for label (and save those to csv)
                     out="sample_data/"+label+"_indicators.csv"
                     #do not send queries for edges if they do not have properties
-                    if dict_databases_numbers[password][3] == float(0):
+                    if dict_databases_numbers[db_name][3] == float(0):
                         df121=db.fetch_as_dataframe(out,label,10,manyToOne,False)
                     else:
                         df121=db.fetch_as_dataframe(out,label,10,manyToOne,True)
@@ -646,7 +399,7 @@ if __name__ == "__main__":
                     avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                     #save to result dataframe
-                    dfresults.loc[len(dfresults)] = [run,password,dict_databases_numbers[password][0],dict_databases_numbers[password][1],label,keep.shape[1]-1,len(keep),avgprop, timings_cardinalities, indicatorsTimings, validationTimings,timingsPartition,partition]
+                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, partition]
                     #dfresults.to_csv('reports/tempres.csv', mode='a', header=True)
             stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
