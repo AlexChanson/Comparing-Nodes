@@ -375,12 +375,12 @@ if __name__ == "__main__":
                     # first remove unwanted indicators
                     dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_for_removal)
                     # second remove correlated indicators
-                    dffinal=remove_correlated_columns(dffinal,correlation_threshold)
+                    dffinal,reportCorr=remove_correlated_columns(dffinal,correlation_threshold)
                     # then check for variance and nulls, and scale
                     keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
 
-                    # union reportUW and report
-                    report=pd.concat([report, reportUW], axis=0)
+                    # union reportUW, reportCorr and report
+                    report=pd.concat([report, reportUW, reportCorr], axis=0)
 
                     processedIndicators="sample_data/"+label+"_indicators_processed.csv"
                     processingReport="reports/"+label+"_indicators_processed.csv"

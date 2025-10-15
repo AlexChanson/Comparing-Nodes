@@ -219,6 +219,7 @@ def remove_correlated_columns(df, threshold=0.8):
 
     # Keep identifier + non-dropped feature columns
     kept_columns = [id_col] + [col for col in features.columns if col not in to_drop]
+    dropped_columns = [col for col in features.columns if col in to_drop]
 
     # ---- Summary ----
     n_initial = features.shape[1]
@@ -232,7 +233,25 @@ def remove_correlated_columns(df, threshold=0.8):
         print(f"Dropped columns: {sorted(list(to_drop))}")
     print(f"Number of kept columns: {n_kept}")
 
-    return df[kept_columns]
+    #return df[kept_columns]
+
+    # Build the report rows
+    cols = [col for col in df[dropped_columns]]
+
+    report_rows = [{
+        'column': col,
+        'action': 'dropped',
+        'reason': 'correlated',
+        'null_ratio': 'not analyzed',
+        'distinct_ratio': 'not analyzed',
+        'dtype_before': str(df[col].dtype),
+    } for col in cols]
+
+    # Ensure fixed column order even if empty
+    report_columns = ['column', 'action', 'reason', 'null_ratio', 'distinct_ratio', 'dtype_before']
+    report_df = pd.DataFrame(report_rows, columns=report_columns)
+
+    return df[kept_columns], report_df
 
 
 
@@ -251,25 +270,36 @@ def export(processed_df,report_df,output,report):
         print(f"Saved processed CSV to: {output}")
         print(f"Saved report CSV to:    {report}")
 
-def drop_columns_by_suffix(df: pd.DataFrame, suffixes: list[str]) -> pd.DataFrame:
-        """
-        Returns a copy of the dataframe with columns removed if their name ends with
-        any of the provided suffixes.
+def drop_columns_by_suffix_with_report(df: pd.DataFrame, suffixes: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Remove columns whose names end with any of the given suffixes and
+    return (filtered_df, report_df).
 
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Input dataframe.
-        suffixes : list[str]
-            List of suffix strings (e.g., ['_id', '_code']).
+    report_df columns:
+      ['column', 'action', 'reason', 'null_ratio', 'distinct_ratio', 'dtype_before']
+    """
+    # Identify columns to drop
+    cols_to_drop = [col for col in df.columns if any(str(col).endswith(suf) for suf in suffixes)]
 
-        Returns
-        -------
-        pd.DataFrame
-            A new dataframe without the columns ending with the given suffixes.
-        """
-        cols_to_drop = [col for col in df.columns if any(col.endswith(suf) for suf in suffixes)]
-        return df.drop(columns=cols_to_drop)
+    # Build the report rows
+    report_rows = [{
+        'column': col,
+        'action': 'dropped',
+        'reason': 'unwanted',
+        'null_ratio': 'not analyzed',
+        'distinct_ratio': 'not analyzed',
+        'dtype_before': str(df[col].dtype),
+    } for col in cols_to_drop]
+
+    # Ensure fixed column order even if empty
+    report_columns = ['column', 'action', 'reason', 'null_ratio', 'distinct_ratio', 'dtype_before']
+    report_df = pd.DataFrame(report_rows, columns=report_columns)
+
+    # Produce filtered dataframe
+    filtered_df = df.drop(columns=cols_to_drop)
+
+    return filtered_df, report_df
+
 
 
 def main():
