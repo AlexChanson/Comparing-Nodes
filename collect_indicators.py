@@ -13,7 +13,7 @@ import utility
 from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
-from validation import process_dataframe, export, remove_correlated_columns, drop_columns_by_suffix
+from validation import process_dataframe, export, remove_correlated_columns, drop_columns_by_suffix_with_report
 from inDegrees import in_degree_by_relationship_type
 import time
 from typing import List, Dict, Optional
@@ -316,7 +316,7 @@ if __name__ == "__main__":
     distinct_low = 0.000001 #0.000001
     distinct_high = 0.96 #0.95
     correlation_threshold = 0.95 #0.95
-    suffixes_for_removal=['_code','_id']
+    suffixes_for_removal=['_code','_id','_longitude','_latitude']
 
     # True = remove lines with at least one null value
     NONULLS = True
@@ -369,14 +369,18 @@ if __name__ == "__main__":
                     end_time = time.time()
                     indicatorsTimings = end_time - start_time
 
+
                     # validation
                     start_time = time.time()
                     # first remove unwanted indicators
-                    dffinal=drop_columns_by_suffix(dffinal,suffixes_for_removal)
+                    dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_for_removal)
                     # second remove correlated indicators
                     dffinal=remove_correlated_columns(dffinal,correlation_threshold)
                     # then check for variance and nulls, and scale
                     keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
+
+                    # union reportUW and report
+                    report=pd.concat([report, reportUW], axis=0)
 
                     processedIndicators="sample_data/"+label+"_indicators_processed.csv"
                     processingReport="reports/"+label+"_indicators_processed.csv"
