@@ -251,6 +251,25 @@ def export(processed_df,report_df,output,report):
         print(f"Saved processed CSV to: {output}")
         print(f"Saved report CSV to:    {report}")
 
+def drop_columns_by_suffix(df: pd.DataFrame, suffixes: list[str]) -> pd.DataFrame:
+        """
+        Returns a copy of the dataframe with columns removed if their name ends with
+        any of the provided suffixes.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input dataframe.
+        suffixes : list[str]
+            List of suffix strings (e.g., ['_id', '_code']).
+
+        Returns
+        -------
+        pd.DataFrame
+            A new dataframe without the columns ending with the given suffixes.
+        """
+        cols_to_drop = [col for col in df.columns if any(col.endswith(suf) for suf in suffixes)]
+        return df.drop(columns=cols_to_drop)
 
 
 def main():

@@ -8,11 +8,12 @@ from scipy.stats import variation
 
 import pandas as pd
 
+import analyzeIndicatorDevisingTimes
 import utility
 from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
 from utility import outer_join_features
-from validation import process_dataframe, export, remove_correlated_columns
+from validation import process_dataframe, export, remove_correlated_columns, drop_columns_by_suffix
 from inDegrees import in_degree_by_relationship_type
 import time
 from typing import List, Dict, Optional
@@ -275,9 +276,14 @@ class Neo4jConnector:
         result = self.execute_query(query)
         return result
 
+    import pandas as pd
 
 
-# Example usage:
+
+
+
+
+
 if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
@@ -308,8 +314,9 @@ if __name__ == "__main__":
     # validates and transform (scale) candidate indicators
     null_threshold = 0.5 #0.5
     distinct_low = 0.000001 #0.000001
-    distinct_high = 0.95 #0.95
+    distinct_high = 0.96 #0.95
     correlation_threshold = 0.95 #0.95
+    suffixes_for_removal=['_code','_id']
 
     # True = remove lines with at least one null value
     NONULLS = True
@@ -317,7 +324,7 @@ if __name__ == "__main__":
     #label
     #label=dict_databases_labels["airports"][0]
 
-    for run in range(4):
+    for run in range(1):
         for db_name in dict_databases_labels.keys():
             print("database: ", db_name)
 
@@ -364,7 +371,9 @@ if __name__ == "__main__":
 
                     # validation
                     start_time = time.time()
-                    # first remove correlated columns
+                    # first remove unwanted indicators
+                    dffinal=drop_columns_by_suffix(dffinal,suffixes_for_removal)
+                    # second remove correlated indicators
                     dffinal=remove_correlated_columns(dffinal,correlation_threshold)
                     # then check for variance and nulls, and scale
                     keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
@@ -403,3 +412,5 @@ if __name__ == "__main__":
                     #dfresults.to_csv('reports/tempres.csv', mode='a', header=True)
             stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
+    # to analyze correlations in the result file
+    #analyzeIndicatorDevisingTimes.main(fileResults,'report/correlations.csv')
