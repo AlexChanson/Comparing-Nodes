@@ -1,11 +1,5 @@
-import re
-from statistics import variance, pvariance
-
-import numpy as np
 from neo4j import GraphDatabase, basic_auth
-from typing import Any, Dict, List, Optional
-
-from scipy.stats import variation
+from typing import Any
 
 import pandas as pd
 
@@ -17,11 +11,13 @@ from utility import outer_join_features
 from validation import process_dataframe, export, remove_correlated_columns, drop_columns_by_suffix_with_report
 from inDegrees import in_degree_by_relationship_type
 import time
-from typing import List, Dict, Optional
 from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
 
 from laplacian_heuristics import score
 from contextualization import schema_hops_from_label,weight_df_by_schema_hops
+
+from typing import Iterable, List, Tuple, Optional, Dict
+import re
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -285,8 +281,105 @@ class Neo4jConnector:
         result = self.execute_query(query)
         return result
 
-    import pandas as pd
 
+
+    def create_indexes_on_numeric_properties(self,
+        numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+        drop_suffixes: Optional[Iterable[str]] = None,
+        include_nodes: bool = True,
+        include_relationships: bool = True,
+        dry_run: bool = False,
+    ) -> Dict[str, List[Tuple[str, str]]]:
+        """
+        Create (or ensure) range indexes for all numeric properties across the graph,
+        for both nodes and relationships (Neo4j 5+).
+
+        Args:
+            session: existing neo4j.Session (e.g., driver.session(database="neo4j"))
+            numeric_types: APOC meta types considered numeric.
+            drop_suffixes: suffixes to exclude (e.g., ["_id", "_code", "latitude"]).
+            include_nodes: whether to create indexes on node properties.
+            include_relationships: whether to create indexes on relationship properties.
+            dry_run: if True, only return planned indexes; no CREATE is executed.
+
+        Returns:
+            {"node": [(label, property), ...], "relationship": [(rel_type, property), ...]}
+            listing what was created (or would be created if dry_run=True).
+        """
+
+        session=self._driver.session()
+        # Build one regex to drop unwanted suffixes (match at end of string).
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:%s)$" % "|".join(safe)
+
+        def _normalize_name(name: str) -> str:
+            # Remove leading ':' if present and unwrap surrounding backticks
+            s = name.lstrip(":")
+            if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
+                s = s[1:-1]
+            return s
+
+        def qident(name: str) -> str:
+            # Safe backtick-quoting for identifiers
+            return "`" + name.replace("`", "``") + "`"
+
+        created = {"node": [], "relationship": []}
+
+        # -------- Nodes --------
+        if include_nodes:
+            meta_nodes = """
+            CALL apoc.meta.nodeTypeProperties() 
+            YIELD nodeType, propertyName, propertyTypes
+            WITH nodeType, propertyName, propertyTypes
+            WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+              AND ($dropRe = '' OR NOT propertyName =~ $dropRe)
+            RETURN DISTINCT nodeType AS rawLabel, propertyName AS property
+            """
+            node_rows = session.run(
+                meta_nodes,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+
+            node_pairs = [(_normalize_name(r["rawLabel"]), r["property"]) for r in node_rows]
+
+            for label, prop in node_pairs:
+                cypher = f"CREATE INDEX IF NOT EXISTS FOR (n:{qident(label)}) ON (n.{qident(prop)})"
+                if dry_run:
+                    created["node"].append((label, prop))
+                else:
+                    session.run(cypher)
+                    created["node"].append((label, prop))
+
+        # -------- Relationships --------
+        if include_relationships:
+            meta_rels = """
+            CALL apoc.meta.relTypeProperties()
+            YIELD relType, propertyName, propertyTypes
+            WITH relType, propertyName, propertyTypes
+            WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+              AND ($dropRe = '' OR NOT propertyName =~ $dropRe)
+            RETURN DISTINCT relType AS rawType, propertyName AS property
+            """
+            rel_rows = session.run(
+                meta_rels,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+
+            rel_pairs = [(_normalize_name(r["rawType"]), r["property"]) for r in rel_rows]
+
+            for rtype, prop in rel_pairs:
+                cypher = f"CREATE INDEX IF NOT EXISTS FOR ()-[r:{qident(rtype)}]-() ON (r.{qident(prop)})"
+                if dry_run:
+                    created["relationship"].append((rtype, prop))
+                else:
+                    session.run(cypher)
+                    created["relationship"].append((rtype, prop))
+
+        return created
 
 
 
@@ -305,8 +398,8 @@ if __name__ == "__main__":
     user="neo4j"
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            "airportnew": ["Airport", "Country", "City"],
-                           "recommendations":["Actor","Movie","Director"],
-                           "icijleaks":["Entity", "Intermediary", "Officer"]
+                           #"recommendations":["Actor","Movie","Director"],
+                           #"icijleaks":["Entity", "Intermediary", "Officer"]
                             #,"icijleaks": ["Intermediary"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
@@ -342,6 +435,16 @@ if __name__ == "__main__":
             start_dbms(dbspec)
 
             with Neo4jConnector(uri, user, db_name) as db:
+                # create indices
+                res = db.create_indexes_on_numeric_properties(
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=suffixes_for_removal,
+                    include_nodes=True,
+                    include_relationships=True,
+                    dry_run=False,  # set True to preview without creating
+                )
+                print("Node indexes:", res["node"])
+                print("Relationship indexes:", res["relationship"])
 
                 # finds relationship cardinalities
                 print("Finding cardinalities")
