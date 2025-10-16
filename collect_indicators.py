@@ -1,3 +1,4 @@
+import re
 from statistics import variance, pvariance
 
 import numpy as np
@@ -176,6 +177,9 @@ class Neo4jConnector:
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
 
+#        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
+        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
+
         # Note:
         # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
         # - Properties are prefixed with the node's (first) label to avoid collisions.
@@ -191,7 +195,7 @@ class Neo4jConnector:
                 apoc.map.fromPairs(
                   [k IN keys(x)
                      WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
-                     AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
+                      AND NOT k =~ '{suffixRegex}' 
                      | [head(labels(x)) + "_" + k, x[k]]
                   ]
                 )
@@ -215,6 +219,9 @@ class Neo4jConnector:
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
 
+#        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
+        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
+
         # Note:
         # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
         # - Properties are prefixed with the node's (first) label to avoid collisions.
@@ -234,7 +241,7 @@ class Neo4jConnector:
         apoc.map.fromPairs(
           [k IN keys(r)
              WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
-             AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
+              AND NOT k =~ '{suffixRegex}' 
              | [type(r) + "_" + k, r[k]]
           ]
         )
@@ -345,6 +352,7 @@ if __name__ == "__main__":
 
                 for label in dict_databases_labels[db_name]:
                     print("Label: ",label)
+
 
                     # collect candidate indicators
                     print("Collecting candidate indicators")

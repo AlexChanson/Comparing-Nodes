@@ -1,3 +1,4 @@
+import re
 from typing import Iterable, List, Dict, Optional, Literal
 from neo4j import Driver, Session
 import pandas as pd
@@ -83,6 +84,8 @@ def _aggregate_neighbors_for_reltype(
 
     # Map Python agg -> Cypher function
     agg_func = {"sum": "sum", "avg": "avg", "min": "min", "max": "max", "count": "count"}[agg]
+    #suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
+    suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
     # --- Neighbor node properties ---
     q_neighbors = f"""
@@ -93,7 +96,7 @@ def _aggregate_neighbors_for_reltype(
     WITH n, k, m[k] AS v
     // Keep numeric values only (INTEGER, FLOAT, NUMBER)
     WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
-    AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
+    AND NOT k =~ '{suffixRegex}' 
     RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
     """
     neighbor_rows = session.run(q_neighbors, {"reltype": reltype}).data()
@@ -112,6 +115,7 @@ def _aggregate_neighbors_for_reltype(
         UNWIND keys(r) AS k
         WITH n, k, r[k] AS v
         WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+        AND NOT k =~ '{suffixRegex}' 
         RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
         """
         rel_rows = session.run(q_rels, {"reltype": reltype}).data()
