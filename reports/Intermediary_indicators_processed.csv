@@ -1,0 +1,14 @@
+column,action,reason,null_ratio,distinct_ratio,dtype_before
+same_intermediary_as,kept_scaled,,0.0,7.471607890017931e-05,int64
+same_name_as,kept_scaled,,0.0,7.471607890017931e-05,int64
+similar,kept_scaled,,0.0,0.00011207411835026898,int64
+underlying,kept_scaled,,0.0,0.00014943215780035862,int64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+intermediary_of__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+similar__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+same_name_as__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+officer_of__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+officer_of__neighbor__sum_icij_id,dropped,unwanted,not analyzed,not analyzed,float64
+registered_address__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+underlying__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+same_as__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64

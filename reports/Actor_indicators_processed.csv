@@ -1,9 +1,13 @@
 column,action,reason,null_ratio,distinct_ratio,dtype_before
-ACTED_IN__neighbor__sum_budget,kept_scaled,,0.44311338470504436,0.235,float64
 ACTED_IN__neighbor__sum_runtime,kept_scaled,,0.00492132357702519,0.09227565562569141,float64
 ACTED_IN__neighbor__sum_imdbVotes,kept_scaled,,0.005245094864987373,0.6130061189949225,float64
 ACTED_IN__neighbor__sum_revenue,kept_scaled,,0.4270543288221201,0.6480560578661845,float64
 DIRECTED__neighbor__sum_imdbRating,dropped,null_ratio>thr,0.9685941850676681,0.5237113402061856,float64
 DIRECTED__neighbor__sum_imdbVotes,dropped,null_ratio>thr,0.9685941850676681,0.9670103092783505,float64
+DIRECTED__neighbor__sum_runtime,dropped,null_ratio>thr,0.968723693582853,0.5755693581780539,float64
 DIRECTED__neighbor__sum_budget,dropped,null_ratio>thr,0.9812860195557858,0.7612456747404844,float64
 DIRECTED__neighbor__sum_revenue,dropped,null_ratio>thr,0.9803794599494917,0.9801980198019802,float64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+ACTED_IN__neighbor__sum_imdbRating,dropped,correlated,not analyzed,not analyzed,float64
+ACTED_IN__neighbor__sum_year,dropped,correlated,not analyzed,not analyzed,float64
+DIRECTED__neighbor__sum_year,dropped,correlated,not analyzed,not analyzed,float64

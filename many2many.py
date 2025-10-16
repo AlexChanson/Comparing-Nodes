@@ -71,6 +71,7 @@ def _aggregate_neighbors_for_reltype(
     reltype: str,
     agg: AggFn = "sum",
     include_rels: bool = True,
+    suffixes: Optional[Iterable[str]] = None,
 ) -> Dict[int, Dict[str, float]]:
     """
     For a given label and relationship type, aggregate numeric properties from:
@@ -92,6 +93,7 @@ def _aggregate_neighbors_for_reltype(
     WITH n, k, m[k] AS v
     // Keep numeric values only (INTEGER, FLOAT, NUMBER)
     WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+    AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
     RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
     """
     neighbor_rows = session.run(q_neighbors, {"reltype": reltype}).data()
@@ -127,6 +129,7 @@ def aggregate_m2m_properties_for_label(
     agg: AggFn = "sum",
     include_relationship_properties: bool = True,
     only_reltypes: Optional[Iterable[str]] = None,
+    suffixes: Optional[Iterable[str]] = None,
 ) -> pd.DataFrame:
     """
     High-level function:
@@ -160,7 +163,7 @@ def aggregate_m2m_properties_for_label(
 
         for rt in reltypes:
             partial = _aggregate_neighbors_for_reltype(
-                session, label, rt, agg=agg, include_rels=include_relationship_properties
+                session, label, rt, agg=agg, include_rels=include_relationship_properties, suffixes=suffixes
             )
             # Merge maps
             for nid, cols in partial.items():

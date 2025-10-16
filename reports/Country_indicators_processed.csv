@@ -1,0 +1,30 @@
+column,action,reason,null_ratio,distinct_ratio,dtype_before
+Country_infant_mortality,kept_scaled,,0.25301204819277107,0.7634408602150538,float64
+Country_forested_area,kept_scaled,,0.2570281124497992,0.8594594594594595,float64
+Country_labor_participation,kept_scaled,,0.30522088353413657,0.8323699421965318,float64
+Country_birth_rate,kept_scaled,,0.25301204819277107,0.8978494623655914,float64
+Country_gasoline_price,kept_scaled,,0.3092369477911647,0.5813953488372093,float64
+Country_agricultural_land,kept_scaled,,0.2570281124497992,0.8972972972972973,float64
+Country_population,kept_scaled,,0.24497991967871485,1.0,float64
+Country_maternal_mortality,kept_scaled,,0.285140562248996,0.6292134831460674,float64
+Country_urban_population,kept_scaled,,0.24899598393574296,1.0,float64
+Country_minimum_wage,kept_scaled,,0.40562248995983935,0.7635135135135135,float64
+Country_co2_emissions,kept_scaled,,0.2570281124497992,0.9783783783783784,float64
+Country_cpi_change,kept_scaled,,0.2931726907630522,0.48863636363636365,float64
+Country_land_area,kept_scaled,,0.24497991967871485,1.0,float64
+Country_unemployment,kept_scaled,,0.30522088353413657,0.930635838150289,float64
+Country_cpi,kept_scaled,,0.3092369477911647,0.9883720930232558,float64
+Country_armed_forces,kept_scaled,,0.3253012048192771,0.625,float64
+Country_education_primary,kept_scaled,,0.2570281124497992,0.7513513513513513,float64
+Country_tax_revenue,kept_scaled,,0.3373493975903614,0.696969696969697,float64
+Country_total_tax_rate,kept_scaled,,0.27710843373493976,0.85,float64
+Country_health_expenditure,kept_scaled,,0.26506024096385544,0.8524590163934426,float64
+Country_life_expectancy,kept_scaled,,0.26104417670682734,0.7228260869565217,float64
+Country_gdp,kept_scaled,,0.24497991967871485,1.0,float64
+Country_physicians,kept_scaled,,0.2570281124497992,0.8108108108108109,float64
+TRADE__rel__sum_Year,kept_scaled,,0.08835341365461848,0.5110132158590308,float64
+TRADE__rel__sum_value,kept_scaled,,0.08835341365461848,1.0,float64
+IN,kept_scaled,,0.0,0.5100401606425703,int64
+TRADE,kept_scaled,,0.0,0.24497991967871485,int64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+Country_fertility_rate,dropped,correlated,not analyzed,not analyzed,float64

@@ -1,5 +1,4 @@
 column,action,reason,null_ratio,distinct_ratio,dtype_before
-Movie_revenue,kept_scaled,,0.43068493150684933,0.9539942252165544,float64
 Movie_imdbRating,kept_scaled,,0.007342465753424657,0.008500772797527048,float64
 Movie_imdbVotes,kept_scaled,,0.007671232876712329,0.9044726670347875,float64
 Movie_year,kept_scaled,,0.0031780821917808217,0.011323658751099384,float64
@@ -8,3 +7,6 @@ Movie_runtime,kept_scaled,,0.006904109589041096,0.025380710659898477,float64
 RATED__rel__sum_rating,kept_scaled,,0.006465753424657534,0.0729097727774101,float64
 ACTED_IN,kept_scaled,,0.0,0.000547945205479452,int64
 DIRECTED,kept_scaled,,0.0,0.0017534246575342466,int64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+RATED__rel__sum_timestamp,dropped,correlated,not analyzed,not analyzed,float64
+RATED,dropped,correlated,not analyzed,not analyzed,int64

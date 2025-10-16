@@ -1,0 +1,17 @@
+column,action,reason,null_ratio,distinct_ratio,dtype_before
+intermediary_of,kept_scaled,,0.0,7.3678936665586046e-06,int64
+officer_of,kept_scaled,,0.0,0.0002001611112748421,int64
+registered_address,kept_scaled,,0.0,1.4735787333117209e-05,int64
+same_as,kept_scaled,,0.0,3.6839468332793023e-06,int64
+same_company_as,kept_scaled,,0.0,3.6839468332793023e-06,int64
+same_name_as,kept_scaled,,0.0,2.4559645555195346e-06,int64
+similar_company_as,kept_scaled,,0.0,2.4559645555195346e-06,int64
+underlying,kept_scaled,,0.0,4.911929111039069e-06,int64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+intermediary_of__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+officer_of__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+registered_address__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+same_as__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+officer_of__neighbor__sum_icij_id,dropped,unwanted,not analyzed,not analyzed,float64
+same_name_as__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64
+underlying__neighbor__sum_node_id,dropped,unwanted,not analyzed,not analyzed,float64

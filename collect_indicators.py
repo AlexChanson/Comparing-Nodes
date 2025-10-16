@@ -165,7 +165,7 @@ class Neo4jConnector:
         #return result
         return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one'],[rec['relType'] for rec in result if rec['cardinality']=='many-to-many']
 
-    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one) -> str:
+    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one,suffixes) -> str:
         """
         warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
@@ -191,6 +191,7 @@ class Neo4jConnector:
                 apoc.map.fromPairs(
                   [k IN keys(x)
                      WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                     AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
                      | [head(labels(x)) + "_" + k, x[k]]
                   ]
                 )
@@ -203,7 +204,7 @@ class Neo4jConnector:
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one) -> str:
+    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one,suffixes) -> str:
         """
         warning, initially  not on schema, was : all(rel ... where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
@@ -233,6 +234,7 @@ class Neo4jConnector:
         apoc.map.fromPairs(
           [k IN keys(r)
              WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+             AND all(sfx IN {suffixes} WHERE NOT k ENDS WITH sfx)
              | [type(r) + "_" + k, r[k]]
           ]
         )
@@ -247,11 +249,11 @@ class Neo4jConnector:
         #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
         #                                       "LIST OF Long","LIST OF Double"]
 
-    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True) -> pd.DataFrame:
-        query=self.build_cypher_nodes(label, max_depth,many2one)
+    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True, suffixes=[]) -> pd.DataFrame:
+        query=self.build_cypher_nodes(label, max_depth,many2one,suffixes)
         result=self.execute_query(query)
         if checkedges:
-            query_edge = self.build_cypher_edges(label, max_depth,many2one)
+            query_edge = self.build_cypher_edges(label, max_depth,many2one,suffixes)
             result.extend(self.execute_query(query_edge))
         rows = []
         for rec in result:
@@ -297,7 +299,7 @@ if __name__ == "__main__":
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            "airportnew": ["Airport", "Country", "City"],
                            "recommendations":["Actor","Movie","Director"],
-                            "icijleaks":["Entity", "Intermediary", "Officer"]
+                           "icijleaks":["Entity", "Intermediary", "Officer"]
                             #,"icijleaks": ["Intermediary"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
@@ -311,20 +313,20 @@ if __name__ == "__main__":
         "recommendations":[28863,166261,1.6,1.2],
         "icijleaks":[20165233,339267,1,0]
     }
-    # validates and transform (scale) candidate indicators
-    null_threshold = 0.5 #0.5
-    distinct_low = 0.000001 #0.000001
-    distinct_high = 0.96 #0.95
-    correlation_threshold = 0.95 #0.95
-    suffixes_for_removal=['_code','_id','_longitude','_latitude']
+    # thresholds for validating and transforming (scale,contextualize) candidate indicators
+    null_threshold = 0.5
+    distinct_low = 0.000001
+    distinct_high = 1
+    correlation_threshold = 0.98
+    suffixes_for_removal=['_code','_id','longitude','latitude']
 
     # True = remove lines with at least one null value
     NONULLS = True
 
-    #label
-    #label=dict_databases_labels["airports"][0]
+    # for tests
+    nbRuns=1
 
-    for run in range(1):
+    for run in range(nbRuns):
         for db_name in dict_databases_labels.keys():
             print("database: ", db_name)
 
@@ -344,19 +346,21 @@ if __name__ == "__main__":
                 for label in dict_databases_labels[db_name]:
                     print("Label: ",label)
 
+                    # collect candidate indicators
+                    print("Collecting candidate indicators")
                     start_time = time.time()
 
-                    # get context and candidate indicators
-                    # get * relationships for label
-                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True)
+                    # get context
+                    # get * relationships properties for label
+                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True,only_reltypes=manyToMany,suffixes=suffixes_for_removal)
 
-                    # get 1 relationships for label (and save those to csv)
+                    # get 1 relationships properties for label (and save those to csv)
                     out="sample_data/"+label+"_indicators.csv"
                     #do not send queries for edges if they do not have properties
                     if dict_databases_numbers[db_name][3] == float(0):
-                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,False)
+                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,False, suffixes_for_removal)
                     else:
-                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,True)
+                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,True, suffixes_for_removal)
                     #out join * and 1
                     dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
@@ -371,6 +375,7 @@ if __name__ == "__main__":
 
 
                     # validation
+                    print("Validating candidate indicators")
                     start_time = time.time()
                     # first remove unwanted indicators
                     dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_for_removal)
@@ -396,10 +401,10 @@ if __name__ == "__main__":
 
                     export(keep,report,processedIndicators,processingReport)
 
-
                     end_time = time.time()
                     validationTimings = end_time - start_time
                     #print('Completed in ', timings, 'seconds')
+
 
                     #call laplacian heuristics on data
                     start_time = time.time()
@@ -413,7 +418,8 @@ if __name__ == "__main__":
 
                     #save to result dataframe
                     dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, partition]
-                    #dfresults.to_csv('reports/tempres.csv', mode='a', header=True)
+                    if nbRuns!=1:
+                        dfresults.to_csv('reports/tempres'+ formatted_time +'.csv', mode='a', header=True)
             stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
     # to analyze correlations in the result file

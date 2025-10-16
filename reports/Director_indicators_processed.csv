@@ -1,19 +1,13 @@
 column,action,reason,null_ratio,distinct_ratio,dtype_before
-Movie_imdbRating,kept_scaled,,0.3972133952578832,0.027980535279805353,float64
-Movie_imdbVotes,kept_scaled,,0.39794671229528233,0.8241981323589119,float64
-Movie_year,kept_scaled,,0.3935468100708873,0.03990326481257558,float64
-Movie_runtime,kept_scaled,,0.39745783427034953,0.06369168356997972,float64
-Movie_budget,dropped,null_ratio>thr,0.7712050843314593,0.2702991452991453,float64
-Movie_revenue,dropped,null_ratio>thr,0.7538499144463456,0.8570009930486594,float64
-ACTED_IN__neighbor__sum_runtime,dropped,null_ratio>thr,0.8812026399413346,0.6646090534979424,float64
 ACTED_IN__neighbor__sum_imdbRating,dropped,null_ratio>thr,0.8809582009288682,0.5728952772073922,float64
 ACTED_IN__neighbor__sum_imdbVotes,dropped,null_ratio>thr,0.8812026399413346,0.9670781893004116,float64
-ACTED_IN__neighbor__sum_year,dropped,null_ratio>thr,0.8809582009288682,0.6406570841889117,float64
 ACTED_IN__neighbor__sum_revenue,dropped,null_ratio>thr,0.9252016621852848,0.9673202614379085,float64
 DIRECTED__neighbor__sum_imdbRating,kept_scaled,,0.0068442923490589095,0.19123800147674133,float64
 DIRECTED__neighbor__sum_imdbVotes,kept_scaled,,0.007333170373991689,0.8842649593696134,float64
-DIRECTED__neighbor__sum_runtime,kept_scaled,,0.007088731361525299,0.20285573609059576,float64
-DIRECTED__neighbor__sum_year,kept_scaled,,0.0029332681495966755,0.2355969600392253,float64
 ACTED_IN__neighbor__sum_budget,dropped,null_ratio>thr,0.9244683451478856,0.8478964401294499,float64
 DIRECTED__neighbor__sum_budget,kept_scaled,,0.4409679784893669,0.3944031482291211,float64
 DIRECTED__neighbor__sum_revenue,kept_scaled,,0.4179907113175263,0.9088618227635448,float64
+out_id,dropped,unwanted,not analyzed,not analyzed,Int64
+ACTED_IN__neighbor__sum_year,dropped,correlated,not analyzed,not analyzed,float64
+DIRECTED__neighbor__sum_runtime,dropped,correlated,not analyzed,not analyzed,float64
+DIRECTED__neighbor__sum_year,dropped,correlated,not analyzed,not analyzed,float64
