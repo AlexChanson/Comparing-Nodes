@@ -381,9 +381,92 @@ class Neo4jConnector:
 
         return created
 
+    def numeric_properties_with_min_nonnull_ratio(self,
+            min_nonnull_ratio: float,
+            numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+            drop_suffixes: Optional[Iterable[str]] = None,
+    ) -> List[Dict]:
+        """
+        Return all (label, property) numeric pairs whose non-null ratio >= min_nonnull_ratio.
 
+        Args:
+            session: existing neo4j.Session
+            min_nonnull_ratio: minimum ratio in [0,1]
+            numeric_types: APOC meta types considered numeric
+            drop_suffixes: optional suffixes to exclude (e.g., ["_id","_code"])
 
+        Returns:
+            [{"label", "property", "nonNullCount", "totalCount", "nonNullRatio"}, ...]
+        """
+        # Compile one end-anchored regex for suffix exclusion (fast)
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:%s)$" % "|".join(safe)
 
+        cypher = """
+        // 1) Enumerate numeric label–property pairs; normalize label without APOC text funcs
+        CALL apoc.meta.nodeTypeProperties()
+        YIELD nodeType, propertyName, propertyTypes
+        WITH
+          // strip one leading ':' if present
+          CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          // strip surrounding backticks if present
+          CASE
+            WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+              THEN substring(s1,1,size(s1)-2)
+            ELSE s1
+          END AS cleanLabel,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        WITH collect({label: cleanLabel, property: property}) AS props
+
+        // 2) Total node counts per label (once)
+        WITH props, apoc.coll.toSet([p IN props | p.label]) AS distinctLabels
+        CALL {
+          WITH distinctLabels
+          UNWIND distinctLabels AS lbl
+          CALL apoc.cypher.run(
+            apoc.text.format('MATCH (n:`%s`) RETURN count(n) AS total', [lbl]),
+            {}
+          ) YIELD value
+          RETURN collect({label: lbl, total: value.total}) AS totals
+        }
+        WITH props, totals
+
+        // 3) Non-null counts per (label, property)
+        UNWIND props AS p
+        CALL apoc.cypher.run(
+          apoc.text.format('MATCH (n:`%s`) WHERE n.`%s` IS NOT NULL RETURN count(n) AS cnt',
+                           [p.label, p.property]),
+          {}
+        ) YIELD value
+        WITH
+          p.label AS label,
+          p.property AS property,
+          value.cnt AS nonNullCount,
+          [t IN totals WHERE t.label = p.label][0].total AS totalCount
+        WITH
+          label, property, nonNullCount, totalCount,
+          (CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END) AS nonNullRatio
+        WHERE nonNullRatio >= $minNonNullRatio
+        RETURN label, property, nonNullCount, totalCount, nonNullRatio
+        ORDER BY nonNullRatio DESC, label, property
+        """
+        session=self._driver.session()
+        recs = session.run(
+            cypher,
+            NUMERIC_TYPES=list(numeric_types),
+            minNonNullRatio=float(min_nonnull_ratio),
+            dropRe=drop_re,
+        )
+        #return [dict(r) for r in recs]
+        return [r["property"] for r in recs]
 
 
 if __name__ == "__main__":
@@ -400,7 +483,6 @@ if __name__ == "__main__":
                            "airportnew": ["Airport", "Country", "City"],
                            #"recommendations":["Actor","Movie","Director"],
                            #"icijleaks":["Entity", "Intermediary", "Officer"]
-                            #,"icijleaks": ["Intermediary"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -418,10 +500,13 @@ if __name__ == "__main__":
     distinct_low = 0.000001
     distinct_high = 1
     correlation_threshold = 0.98
-    suffixes_for_removal=['_code','_id','longitude','latitude']
+    suffixes_for_removal=['_code','_id','longitude','latitude'] # for unwanted properties
 
     # True = remove lines with at least one null value
     NONULLS = True
+
+    # if unwanted properties, acceptable density (validation) are pushed down indicator collection
+    PUSHDOWN = True
 
     # for tests
     nbRuns=1
@@ -436,6 +521,7 @@ if __name__ == "__main__":
 
             with Neo4jConnector(uri, user, db_name) as db:
                 # create indices
+                print("Indexing numerical properties")
                 res = db.create_indexes_on_numeric_properties(
                     numeric_types=("Long", "Double", "Float", "Integer"),
                     drop_suffixes=suffixes_for_removal,
@@ -461,9 +547,23 @@ if __name__ == "__main__":
                     print("Collecting candidate indicators")
                     start_time = time.time()
 
+                    if PUSHDOWN:
+                        # finding properties with acceptable density
+                        props = db.numeric_properties_with_min_nonnull_ratio(
+                            min_nonnull_ratio=0.9,  # keep properties with >= 90% non-null
+                            numeric_types=("Long", "Double", "Float", "Integer"),
+                            drop_suffixes=suffixes_for_removal,  # optional
+                        )
+                        #print('time nulls:', time.time() - start_time)
+                        suffixes_for_removal = suffixes_for_removal + props
+                    else:
+                        suffixes_for_removal = []
+
+
                     # get context
                     # get * relationships properties for label
                     dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True,only_reltypes=manyToMany,suffixes=suffixes_for_removal)
+                    #print('* props:', time.time() - start_time)
 
                     # get 1 relationships properties for label (and save those to csv)
                     out="sample_data/"+label+"_indicators.csv"
@@ -472,11 +572,14 @@ if __name__ == "__main__":
                         df121=db.fetch_as_dataframe(out,label,10,manyToOne,False, suffixes_for_removal)
                     else:
                         df121=db.fetch_as_dataframe(out,label,10,manyToOne,True, suffixes_for_removal)
+                    #print('1 props:', time.time() - start_time)
+
                     #out join * and 1
                     dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
                     # get in degrees of label
                     dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
+                    #print('degrees:', time.time() - start_time)
 
                     # then outer join with dftemp
                     dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
