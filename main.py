@@ -11,6 +11,7 @@ import argparse
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 import time
+from sklearn.metrics import silhouette_score
 
 from numba import njit
 #from PrettyPrint import PrettyPrintTree
@@ -90,10 +91,9 @@ def bnb(node : Node, node_map : dict[Node], max_depth, **params):
 #@jit()
 def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans"):
     # Min-heap; we invert the priority for desired behavior.
-    # Order is "mostly irrelevant", but we still need a deterministic, stable order.
+    # Order is mostly irrelevant, but we still need a deterministic, stable order.
     # Priority schema:
     #   (-depth, tie)  => deeper nodes first (DFS-like) while still using a heap.
-    # You can swap to something like (-node.obj, ...) if you want best-first on obj.
     heap = []
     tie = count()
 
@@ -101,7 +101,6 @@ def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans"):
         # base condition: do not push if node is leaf or depth limit reached
         if node.is_leaf() or node.depth == max_depth:
             return
-        # deeper-first (DFS-ish) while using a heap
         heapq.heappush(heap, ((-node.depth), next(tie), node))
 
     # Start from root (do not pre-compute membership/obj here, same as recursive entry)
@@ -269,7 +268,7 @@ if __name__ == '__main__':
         description="Please specify dataset name"
     )
 
-    parser.add_argument("-ds", "--dataset", default="actors", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
@@ -309,23 +308,28 @@ if __name__ == '__main__':
         sols = sorted(sols, key=lambda x: x.obj)
         print("[Heuristic] Local Search finished with solutions:", sols)
         print("[best solution]:", sols[-1])
+        print("[Silhouette]", silhouette_score(data[:, sol_rd.derive_clustering_mask()], sol_rd.membership))
 
     elif args.method == "exp":
         sol_exp = heur_exp(data, features, k, mtd=mtd, max_depth=9)
         print("[best solution]:", sol_exp)
+        print("[Silhouette]", silhouette_score(data[:, sol_exp.derive_clustering_mask()], sol_exp.membership))
 
     elif args.method == "sls":
         sol_patrick = heur_express(data, features, k, mtd=mtd)
         sol_patrick = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick, n_steps=ls_steps)
         print("[best solution]:", sol_patrick)
+        print("[Silhouette]", silhouette_score(data[:,sol_patrick.derive_clustering_mask()], sol_patrick.membership))
 
     elif args.method == "lp":
         sol_patrick = heur_express(data, features, k, mtd=mtd)
         print("[best solution]:", sol_patrick)
+        print("[Silhouette]", silhouette_score(data[:, sol_patrick.derive_clustering_mask()], sol_patrick.membership))
 
     elif args.method == "rd":
         sol_rd = heur_random(data, features, k, mtd=mtd)
         print("[best solution]:", sol_rd)
+        print("[Silhouette]", silhouette_score(data[:, sol_rd.derive_clustering_mask()], sol_rd.membership))
 
     et = time.process_time()
     et_w = time.time()
