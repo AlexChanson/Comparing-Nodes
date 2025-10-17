@@ -10,7 +10,7 @@ from os import path
 log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
-nb_samples = 10
+nb_samples = 5
 datasets = [ "iris", "actors", "movies", ] #"directors", "airports"
 heuristics = ["exp"] #"ls", "sls", "lp", "rd"
 
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     # Generate all test configs
     for data_config in datasets:
         for heuristic in heuristics:
-            for k in range(2,5):
+            for k in range(2,6):
                 if heuristic != "exp":
                     sids = range(nb_samples)
                 else:
