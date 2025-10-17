@@ -287,6 +287,16 @@ if __name__ == '__main__':
         features, data = load_directors()
     elif args.dataset == "actors":
         features, data = load_actors()
+    elif args.dataset == "city":
+        features, data = load_city()
+    elif args.dataset == "country":
+        features, data = load_country()
+    elif args.dataset == "entity":
+        features, data = load_entity()
+    elif args.dataset == "intermediary":
+        features, data = load_intermediary()
+    elif args.dataset == "officer":
+        features, data = load_officer()
     elif args.dataset == "custom":
         features, data = load_custom(args.path, args.delimiter)
 
