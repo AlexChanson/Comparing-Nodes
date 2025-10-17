@@ -174,36 +174,58 @@ class Neo4jConnector:
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
 
-#        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
+#       suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
-        # Note:
-        # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
-        # - Properties are prefixed with the node's (first) label to avoid collisions.
-        return f"""
-        MATCH (n:`{lbl}`)
-        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-        WHERE
-          all(rel IN relationships(p) WHERE
-              type(rel) in {many2one})
-        WITH n, collect(DISTINCT m) + n AS nodes
-        WITH n,
-             [x IN nodes |
-                apoc.map.fromPairs(
-                  [k IN keys(x)
-                     WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
-                      AND NOT k =~ '{suffixRegex}' 
-                     | [head(labels(x)) + "_" + k, x[k]]
-                  ]
-                )
-             ] AS maps
-        RETURN id(n) AS rootId,
-               apoc.map.mergeList(maps) AS mergedNumericProperties
-        """
-        # If you want numeric lists as well, replace the WHERE line by:
-        # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
-        #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
-        #                                       "LIST OF Long","LIST OF Double"]
+        if suffixes!=[]:
+            # Note:
+            # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
+            # - Properties are prefixed with the node's (first) label to avoid collisions.
+            return f"""
+            MATCH (n:`{lbl}`)
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE
+              all(rel IN relationships(p) WHERE
+                  type(rel) in {many2one})
+            WITH n, collect(DISTINCT m) + n AS nodes
+            WITH n,
+                 [x IN nodes |
+                    apoc.map.fromPairs(
+                      [k IN keys(x)
+                         WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                          AND NOT k =~ '{suffixRegex}' 
+                         | [head(labels(x)) + "_" + k, x[k]]
+                      ]
+                    )
+                 ] AS maps
+            RETURN id(n) AS rootId,
+                   apoc.map.mergeList(maps) AS mergedNumericProperties
+            """
+            # If you want numeric lists as well, replace the WHERE line by:
+            # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
+            #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
+            #                                       "LIST OF Long","LIST OF Double"]
+
+        else:
+            return f"""
+                        MATCH (n:`{lbl}`)
+                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+                        WHERE
+                          all(rel IN relationships(p) WHERE
+                              type(rel) in {many2one})
+                        WITH n, collect(DISTINCT m) + n AS nodes
+                        WITH n,
+                             [x IN nodes |
+                                apoc.map.fromPairs(
+                                  [k IN keys(x)
+                                     WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                                     | [head(labels(x)) + "_" + k, x[k]]
+                                  ]
+                                )
+                             ] AS maps
+                        RETURN id(n) AS rootId,
+                               apoc.map.mergeList(maps) AS mergedNumericProperties
+                        """
 
     def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one,suffixes) -> str:
         """
@@ -219,39 +241,67 @@ class Neo4jConnector:
 #        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
-        # Note:
-        # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
-        # - Properties are prefixed with the node's (first) label to avoid collisions.
-        return f"""
-        MATCH (n:`{lbl}`)
-        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-        WHERE
-          all(rel IN relationships(p) WHERE
-               type(rel) in {many2one})
-        WITH n,
-            // Gather all relationships from all such paths, then deduplicate
-        apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
-        WITH n,
-             // Build one small map per relationship, keeping only numeric props.
-            // Keys are prefixed with the relationship type to reduce collisions.
-        [r IN rels |
-        apoc.map.fromPairs(
-          [k IN keys(r)
-             WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
-              AND NOT k =~ '{suffixRegex}' 
-             | [type(r) + "_" + k, r[k]]
-          ]
-        )
-        ] AS maps
-        WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
-        WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
-        RETURN id(n) AS rootId,
-       mergedNumericProperties;
-        """
-        # If you want numeric lists as well, replace the WHERE line by:
-        # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
-        #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
-        #                                       "LIST OF Long","LIST OF Double"]
+        if suffixes!=[]:
+            # Note:
+            # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
+            # - Properties are prefixed with the node's (first) label to avoid collisions.
+            return f"""
+            MATCH (n:`{lbl}`)
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE
+              all(rel IN relationships(p) WHERE
+                   type(rel) in {many2one})
+            WITH n,
+                // Gather all relationships from all such paths, then deduplicate
+            apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+            WITH n,
+                 // Build one small map per relationship, keeping only numeric props.
+                // Keys are prefixed with the relationship type to reduce collisions.
+            [r IN rels |
+            apoc.map.fromPairs(
+              [k IN keys(r)
+                 WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+                  AND NOT k =~ '{suffixRegex}' 
+                 | [type(r) + "_" + k, r[k]]
+              ]
+            )
+            ] AS maps
+            WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+            WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
+            RETURN id(n) AS rootId,
+           mergedNumericProperties;
+            """
+            # If you want numeric lists as well, replace the WHERE line by:
+            # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
+            #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
+            #                                       "LIST OF Long","LIST OF Double"]
+        else:
+            return f"""
+                        MATCH (n:`{lbl}`)
+                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+                        WHERE
+                          all(rel IN relationships(p) WHERE
+                               type(rel) in {many2one})
+                        WITH n,
+                            // Gather all relationships from all such paths, then deduplicate
+                        apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+                        WITH n,
+                             // Build one small map per relationship, keeping only numeric props.
+                            // Keys are prefixed with the relationship type to reduce collisions.
+                        [r IN rels |
+                        apoc.map.fromPairs(
+                          [k IN keys(r)
+                             WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+                             | [type(r) + "_" + k, r[k]]
+                          ]
+                        )
+                        ] AS maps
+                        WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+                        WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
+                        RETURN id(n) AS rootId,
+                       mergedNumericProperties;
+                        """
+
 
     def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True, suffixes=[]) -> pd.DataFrame:
         query=self.build_cypher_nodes(label, max_depth,many2one,suffixes)
@@ -621,7 +671,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','partition']
+    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','time_total','partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -656,6 +706,7 @@ if __name__ == "__main__":
     # if unwanted properties, acceptable density (validation) are pushed down indicator collection
     PUSHDOWN = True
 
+    # should we drop all indices on numerical properties
     DROP_INDEX = True
 
     # for tests
@@ -734,9 +785,9 @@ if __name__ == "__main__":
                     out="sample_data/"+label+"_indicators.csv"
                     #do not send queries for edges if they do not have properties
                     if dict_databases_numbers[db_name][3] == float(0):
-                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,False, suffixes_for_removal)
+                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,False, suffixes_for_removal)
                     else:
-                        df121=db.fetch_as_dataframe(out,label,10,manyToOne,True, suffixes_for_removal)
+                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,True, suffixes_for_removal)
                     #print('1 props:', time.time() - start_time)
 
                     #out join * and 1
@@ -797,12 +848,13 @@ if __name__ == "__main__":
                     partition={}
                     end_time = time.time()
                     timingsPartition = end_time - start_time
+                    timings_total=indicatorsTimings+validationTimings +(timings_preprocessing+timings_cardinalities)/3
 
                     #computes avg numerical properties for node type label
                     avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                     #save to result dataframe
-                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, partition]
+                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, timings_total, partition]
                     if nbRuns!=1:
                         dfresults.to_csv('reports/tempres'+ formatted_time +'.csv', mode='a', header=True)
             stop_dbms(dbspec)
