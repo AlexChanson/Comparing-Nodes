@@ -11,7 +11,7 @@ log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
 nb_samples = 5
-datasets = [ "actors", "movies", "directors", "airports", "city", "country", "entity", "intermediary", "officer"]
+datasets = [ "actors", "movies", "directors", "airports", "city", "country", "entity", "officer"]
 heuristics = ["ls", "sls", "lp", "rd"]
 
 
