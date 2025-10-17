@@ -16,8 +16,9 @@ from orchestrate_neo4j import start_dbms, stop_dbms, DbSpec, stop_current_dbms
 from laplacian_heuristics import score
 from contextualization import schema_hops_from_label,weight_df_by_schema_hops
 
-from typing import Iterable, List, Tuple, Optional, Dict
+from typing import Iterable, List, Tuple, Optional, Dict, Set
 import re
+
 
 NUMERIC_TYPES = [
         # APOC meta cypher type names (Neo4j 4/5)
@@ -454,7 +455,7 @@ class Neo4jConnector:
         WITH
           label, property, nonNullCount, totalCount,
           (CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END) AS nonNullRatio
-        WHERE nonNullRatio >= $minNonNullRatio
+        WHERE nonNullRatio < $minNonNullRatio
         RETURN label, property, nonNullCount, totalCount, nonNullRatio
         ORDER BY nonNullRatio DESC, label, property
         """
@@ -469,11 +470,158 @@ class Neo4jConnector:
         return [r["property"] for r in recs]
 
 
+
+    def drop_indexes_on_numeric_properties(
+            self,
+            numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+            drop_suffixes: Optional[Iterable[str]] = None,
+            include_nodes: bool = True,
+            include_relationships: bool = True,
+            dry_run: bool = False,
+    ) -> Dict[str, List[str]]:
+        """
+        Drop (if they exist) all Neo4j property indexes that index only numeric properties,
+        for nodes and/or relationships.
+
+        - Uses APOC store metadata to decide what is numeric (no graph scan).
+        - Skips indexes owned by constraints.
+        - Only drops RANGE/BTREE property indexes (not FULLTEXT/LOOKUP/TEXT/POINT).
+
+        Returns:
+            {"node": [index_name, ...], "relationship": [index_name, ...]}
+            listing the indexes that were (or would be, in dry_run) dropped.
+        """
+        # Build optional end-anchored regex to exclude suffixes from "numeric" set
+        drop_re = ""
+        if drop_suffixes:
+            drop_re = r"(?:%s)$" % "|".join(re.escape(s) for s in drop_suffixes)
+
+        def qident(name: str) -> str:
+            return "`" + name.replace("`", "``") + "`"
+
+        # --- 1) Collect numeric properties per node label / rel type ---
+        numeric_node_props: Dict[str, Set[str]] = {}
+        numeric_rel_props: Dict[str, Set[str]] = {}
+
+        session=self._driver.session()
+        if include_nodes:
+            rows = session.run(
+                """
+                CALL apoc.meta.nodeTypeProperties()
+                YIELD nodeType, propertyName, propertyTypes
+                WITH
+                  CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+                  propertyName AS property,
+                  propertyTypes
+                WITH
+                  CASE WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+                       THEN substring(s1,1,size(s1)-2) ELSE s1 END AS label,
+                  property, propertyTypes
+                WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+                  AND ($dropRe = '' OR NOT property =~ $dropRe)
+                RETURN label, property
+                """,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+            for r in rows:
+                numeric_node_props.setdefault(r["label"], set()).add(r["property"])
+
+        if include_relationships:
+            rows = session.run(
+                """
+                CALL apoc.meta.relTypeProperties()
+                YIELD relType, propertyName, propertyTypes
+                WITH
+                  CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS s1,
+                  propertyName AS property,
+                  propertyTypes
+                WITH
+                  CASE WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+                       THEN substring(s1,1,size(s1)-2) ELSE s1 END AS rtype,
+                  property, propertyTypes
+                WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+                  AND ($dropRe = '' OR NOT property =~ $dropRe)
+                RETURN rtype, property
+                """,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+            for r in rows:
+                numeric_rel_props.setdefault(r["rtype"], set()).add(r["property"])
+
+        # Quick outs if nothing numeric found
+        if not numeric_node_props and not numeric_rel_props:
+            return {"node": [], "relationship": []}
+
+        # --- 2) List existing indexes ---
+        index_rows = session.run(
+            """
+            SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, owningConstraint
+            RETURN name, type, entityType, labelsOrTypes, properties, owningConstraint
+            """
+        )
+
+        droppable_nodes: List[str] = []
+        droppable_rels: List[str] = []
+
+        ALLOWED_TYPES = {"RANGE", "BTREE"}  # property indexes we may drop
+
+        for r in index_rows:
+            name = r["name"]
+            idx_type = r["type"]  # e.g., RANGE, FULLTEXT, LOOKUP, POINT, TEXT
+            entity = r["entityType"]  # NODE or RELATIONSHIP
+            labels_or_types = r["labelsOrTypes"] or []
+            props = r["properties"] or []
+            owning = r["owningConstraint"]  # non-null => tied to a constraint
+
+            # Skip constraint-owned or non-supported types
+            if owning is not None:
+                continue
+            if idx_type not in ALLOWED_TYPES:
+                continue
+            if not labels_or_types or not props:
+                continue
+
+            # We only handle standard property indexes (single label/type)
+            label_or_type = labels_or_types[0]
+
+            if entity == "NODE" and include_nodes:
+                numeric_set = numeric_node_props.get(label_or_type, set())
+                # drop only if ALL properties in the index are numeric for this label
+                if numeric_set and all(p in numeric_set for p in props):
+                    droppable_nodes.append(name)
+
+            elif entity == "RELATIONSHIP" and include_relationships:
+                numeric_set = numeric_rel_props.get(label_or_type, set())
+                if numeric_set and all(p in numeric_set for p in props):
+                    droppable_rels.append(name)
+
+        # --- 3) Drop them (or dry-run) ---
+        dropped = {"node": [], "relationship": []}
+
+        for name in droppable_nodes:
+            if dry_run:
+                dropped["node"].append(name)
+            else:
+                session.run(f"DROP INDEX {qident(name)} IF EXISTS")
+                dropped["node"].append(name)
+
+        for name in droppable_rels:
+            if dry_run:
+                dropped["relationship"].append(name)
+            else:
+                session.run(f"DROP INDEX {qident(name)} IF EXISTS")
+                dropped["relationship"].append(name)
+
+        return dropped
+
+
 if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','partition']
+    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','partition']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -481,8 +629,8 @@ if __name__ == "__main__":
     user="neo4j"
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            "airportnew": ["Airport", "Country", "City"],
-                           #"recommendations":["Actor","Movie","Director"],
-                           #"icijleaks":["Entity", "Intermediary", "Officer"]
+                           "recommendations":["Actor","Movie","Director"],
+                         #  "icijleaks":["Entity", "Intermediary", "Officer"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -500,13 +648,15 @@ if __name__ == "__main__":
     distinct_low = 0.000001
     distinct_high = 1
     correlation_threshold = 0.98
-    suffixes_for_removal=['_code','_id','longitude','latitude'] # for unwanted properties
+    unwanted_suffixes=['_code','_id','longitude','latitude'] # for unwanted properties
 
     # True = remove lines with at least one null value
     NONULLS = True
 
     # if unwanted properties, acceptable density (validation) are pushed down indicator collection
     PUSHDOWN = True
+
+    DROP_INDEX = True
 
     # for tests
     nbRuns=1
@@ -520,15 +670,27 @@ if __name__ == "__main__":
             start_dbms(dbspec)
 
             with Neo4jConnector(uri, user, db_name) as db:
+                # drop index
+                if DROP_INDEX:
+                    res = db.drop_indexes_on_numeric_properties(
+                        numeric_types=("Long", "Double", "Float", "Integer"),
+                        drop_suffixes=[],  # optional
+                        include_nodes=True,
+                        include_relationships=True,
+                        dry_run=False,  # set True to preview
+                    )
                 # create indices
                 print("Indexing numerical properties")
+                start_time = time.time()
                 res = db.create_indexes_on_numeric_properties(
                     numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=suffixes_for_removal,
+                    drop_suffixes=unwanted_suffixes,
                     include_nodes=True,
                     include_relationships=True,
                     dry_run=False,  # set True to preview without creating
                 )
+                end_time = time.time()
+                timings_indexes = end_time - start_time
                 print("Node indexes:", res["node"])
                 print("Relationship indexes:", res["relationship"])
 
@@ -539,26 +701,29 @@ if __name__ == "__main__":
                 end_time = time.time()
                 timings_cardinalities = end_time - start_time
 
+                if PUSHDOWN:
+                    # finding properties with acceptable density
+                    start_time = time.time()
+                    props = db.numeric_properties_with_min_nonnull_ratio(
+                        min_nonnull_ratio=null_threshold,
+                        numeric_types=("Long", "Double", "Float", "Integer"),
+                        drop_suffixes=unwanted_suffixes,  # optional
+                    )
+                    # print('time nulls:', time.time() - start_time)
+                    suffixes_for_removal = unwanted_suffixes + props
+                    end_time = time.time()
+                    timings_density = end_time - start_time
+                else:
+                    suffixes_for_removal = []
+                    timings_density = 0
+                timings_preprocessing=timings_indexes+timings_density
+
                 for label in dict_databases_labels[db_name]:
                     print("Label: ",label)
-
 
                     # collect candidate indicators
                     print("Collecting candidate indicators")
                     start_time = time.time()
-
-                    if PUSHDOWN:
-                        # finding properties with acceptable density
-                        props = db.numeric_properties_with_min_nonnull_ratio(
-                            min_nonnull_ratio=0.9,  # keep properties with >= 90% non-null
-                            numeric_types=("Long", "Double", "Float", "Integer"),
-                            drop_suffixes=suffixes_for_removal,  # optional
-                        )
-                        #print('time nulls:', time.time() - start_time)
-                        suffixes_for_removal = suffixes_for_removal + props
-                    else:
-                        suffixes_for_removal = []
-
 
                     # get context
                     # get * relationships properties for label
@@ -590,9 +755,15 @@ if __name__ == "__main__":
 
                     # validation
                     print("Validating candidate indicators")
+
+                    if PUSHDOWN:
+                        suffixes_unwanted=[]
+                    else:
+                        suffixes_unwanted=unwanted_suffixes
+
                     start_time = time.time()
                     # first remove unwanted indicators
-                    dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_for_removal)
+                    dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_unwanted)
                     # second remove correlated indicators
                     dffinal,reportCorr=remove_correlated_columns(dffinal,correlation_threshold)
                     # then check for variance and nulls, and scale
@@ -631,7 +802,7 @@ if __name__ == "__main__":
                     avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                     #save to result dataframe
-                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, partition]
+                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, partition]
                     if nbRuns!=1:
                         dfresults.to_csv('reports/tempres'+ formatted_time +'.csv', mode='a', header=True)
             stop_dbms(dbspec)
