@@ -4,6 +4,7 @@ from typing import Any
 import pandas as pd
 
 import analyzeIndicatorDevisingTimes
+import averageRunsCollectAndLatex
 import utility
 from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
@@ -683,7 +684,7 @@ if __name__ == "__main__":
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_Partition','time_total','partition']
+    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_total']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
@@ -693,7 +694,7 @@ if __name__ == "__main__":
                            "airportnew": ["Airport", "Country", "City"],
                            #"airportnew": ["Country"],
                            "recommendations":["Actor","Movie","Director"],
-                           #"icijleaks":["Entity", "Intermediary", "Officer"]
+                           "icijleaks":["Entity", "Intermediary", "Officer"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -717,14 +718,14 @@ if __name__ == "__main__":
     NONULLS = True
 
     # if unwanted properties, acceptable density (validation) are pushed down indicator collection
-    PUSHDOWN = False
+    PUSHDOWN = True
 
     # should we drop/create all indices on numerical properties
     DROP_INDEX = True
     CREATE_INDEX = True
 
     # for tests
-    nbRuns=1
+    nbRuns=3
 
     for run in range(nbRuns):
         for db_name in dict_databases_labels.keys():
@@ -835,14 +836,18 @@ if __name__ == "__main__":
 
                     start_time = time.time()
                     # first remove unwanted indicators
-                    dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_unwanted)
+                    if not PUSHDOWN:
+                        dffinal,reportUW=drop_columns_by_suffix_with_report(dffinal,suffixes_unwanted)
                     # second remove correlated indicators
                     dffinal,reportCorr=remove_correlated_columns(dffinal,correlation_threshold)
                     # then check for variance and nulls, and scale
-                    keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high)
+                    keep,report=process_dataframe(dffinal,null_threshold,distinct_low,distinct_high,PUSHDOWN)
 
                     # union reportUW, reportCorr and report
-                    report=pd.concat([report, reportUW, reportCorr], axis=0)
+                    if not PUSHDOWN:
+                        report=pd.concat([report, reportUW, reportCorr], axis=0)
+                    else:
+                        report = pd.concat([report, reportCorr], axis=0)
 
                     processedIndicators="sample_data/"+label+"_indicators_processed.csv"
                     processingReport="reports/"+label+"_indicators_processed.csv"
@@ -860,25 +865,27 @@ if __name__ == "__main__":
 
                     end_time = time.time()
                     validationTimings = end_time - start_time
-                    #print('Completed in ', timings, 'seconds')
-
 
                     #call laplacian heuristics on data
-                    start_time = time.time()
+                    #start_time = time.time()
                     #partition=score(processedIndicators)
-                    partition={}
-                    end_time = time.time()
-                    timingsPartition = end_time - start_time
+                    #partition={}
+                    #end_time = time.time()
+                    #timingsPartition = end_time - start_time
                     timings_total=indicatorsTimings+validationTimings +(timings_preprocessing+timings_cardinalities)/3
 
                     #computes avg numerical properties for node type label
                     avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                     #save to result dataframe
-                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timingsPartition, timings_total, partition]
+                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total]
                     if nbRuns!=1:
                         dfresults.to_csv('reports/tempres'+ formatted_time +'.csv', mode='a', header=True)
             stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
+    # to average results by labels
+    out,latex=averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(csv_path=fileResults,label_col="label",float_precision=1,output_csv="averaged_time_by_label.csv", output_tex="averaged_time_by_label.tex",)
+    print("\n===== LaTeX Preview =====\n")
+    print(latex)
     # to analyze correlations in the result file
-    #analyzeIndicatorDevisingTimes.main(fileResults,'report/correlations.csv')
+    analyzeIndicatorDevisingTimes.main(out,'reports')
