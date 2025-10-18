@@ -268,7 +268,7 @@ if __name__ == '__main__':
         description="Please specify dataset name"
     )
 
-    parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-ds", "--dataset", default="actors", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
@@ -287,6 +287,16 @@ if __name__ == '__main__':
         features, data = load_directors()
     elif args.dataset == "actors":
         features, data = load_actors()
+    elif args.dataset == "city":
+        features, data = load_city()
+    elif args.dataset == "country":
+        features, data = load_country()
+    elif args.dataset == "entity":
+        features, data = load_entity()
+    elif args.dataset == "intermediary":
+        features, data = load_intermediary()
+    elif args.dataset == "officer":
+        features, data = load_officer()
     elif args.dataset == "custom":
         features, data = load_custom(args.path, args.delimiter)
 
