@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from neo4j import GraphDatabase, basic_auth
 from typing import Any
 
@@ -884,8 +886,8 @@ if __name__ == "__main__":
             stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
     # to average results by labels
-    out,latex=averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(csv_path=fileResults,label_col="label",float_precision=1,output_csv="averaged_time_by_label.csv", output_tex="averaged_time_by_label.tex",)
+    out,latex=averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(csv_path=fileResults,label_col="label",float_precision=1,output_csv="reports/averaged_time_by_label.csv", output_tex="reports/averaged_time_by_label.tex",)
     print("\n===== LaTeX Preview =====\n")
     print(latex)
     # to analyze correlations in the result file
-    analyzeIndicatorDevisingTimes.main(out,'reports')
+    analyzeIndicatorDevisingTimes.main(out,Path('reports'))

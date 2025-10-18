@@ -68,8 +68,9 @@ def main(input_csv: Path, outdir: Path):
     print(f"[OK] Saved: {corr_csv}")
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--input", type=Path, required=True, help="Path to the input CSV")
-    p.add_argument("--outdir", type=Path, default=Path("."), help="Directory to write outputs")
-    args = p.parse_args()
-    main(args.input, args.outdir)
+    #p = argparse.ArgumentParser()
+    #p.add_argument("--input", type=Path, required=True, help="Path to the input CSV")
+    #p.add_argument("--outdir", type=Path, default=Path("."), help="Directory to write outputs")
+    #args = p.parse_args()
+    #main(args.input, args.outdir)
+    main('averaged_time_by_label.csv',Path('reports'))
