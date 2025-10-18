@@ -79,7 +79,7 @@ def process_dataframe(
 
     total_rows = len(df)
 
-    for col in df.columns[1:]:
+    for col in df.columns[1:]: # was [1:]
         s_orig = df[col]
         dtype_before = str(s_orig.dtype)
 
@@ -242,8 +242,8 @@ def remove_correlated_columns(df, threshold=0.8):
         'column': col,
         'action': 'dropped',
         'reason': 'correlated',
-        'null_ratio': 'not analyzed',
-        'distinct_ratio': 'not analyzed',
+        'null_ratio': 'N/A',
+        'distinct_ratio': 'N/A',
         'dtype_before': str(df[col].dtype),
     } for col in cols]
 

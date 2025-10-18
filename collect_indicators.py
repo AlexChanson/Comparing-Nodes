@@ -163,7 +163,7 @@ class Neo4jConnector:
         #return result
         return [rec['relType'] for rec in result if rec['cardinality']=='many-to-one'],[rec['relType'] for rec in result if rec['cardinality']=='many-to-many']
 
-    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one,suffixes) -> str:
+    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one,suffixes,to_keep) -> str:
         """
         warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
@@ -173,14 +173,16 @@ class Neo4jConnector:
         """
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
+        props=to_keep
 
 #       suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
-        if suffixes!=[]:
+        if to_keep==[]:
             # Note:
             # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
             # - Properties are prefixed with the node's (first) label to avoid collisions.
+            #AND NOT k =~ '{suffixRegex}' in second where
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
@@ -193,7 +195,6 @@ class Neo4jConnector:
                     apoc.map.fromPairs(
                       [k IN keys(x)
                          WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
-                          AND NOT k =~ '{suffixRegex}' 
                          | [head(labels(x)) + "_" + k, x[k]]
                       ]
                     )
@@ -217,8 +218,8 @@ class Neo4jConnector:
                         WITH n,
                              [x IN nodes |
                                 apoc.map.fromPairs(
-                                  [k IN keys(x)
-                                     WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                                  [k IN {props}
+                                     WHERE x[k] IS NOT NULL AND apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
                                      | [head(labels(x)) + "_" + k, x[k]]
                                   ]
                                 )
@@ -227,7 +228,7 @@ class Neo4jConnector:
                                apoc.map.mergeList(maps) AS mergedNumericProperties
                         """
 
-    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one,suffixes) -> str:
+    def build_cypher_edges(self, label: str, max_depth: Optional[int],many2one,suffixes,to_keep) -> str:
         """
         warning, initially  not on schema, was : all(rel ... where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
         Build the Cypher query by inlining the label (labels can't be parameterized).
@@ -237,14 +238,16 @@ class Neo4jConnector:
         """
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
+        props=to_keep
 
 #        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
-        if suffixes!=[]:
+        if to_keep==[]:
             # Note:
             # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
             # - Properties are prefixed with the node's (first) label to avoid collisions.
+            #AND NOT k =~ '{suffixRegex}'  in second where
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
@@ -261,7 +264,6 @@ class Neo4jConnector:
             apoc.map.fromPairs(
               [k IN keys(r)
                  WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
-                  AND NOT k =~ '{suffixRegex}' 
                  | [type(r) + "_" + k, r[k]]
               ]
             )
@@ -290,7 +292,7 @@ class Neo4jConnector:
                             // Keys are prefixed with the relationship type to reduce collisions.
                         [r IN rels |
                         apoc.map.fromPairs(
-                          [k IN keys(r)
+                          [k IN {props}
                              WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
                              | [type(r) + "_" + k, r[k]]
                           ]
@@ -303,11 +305,11 @@ class Neo4jConnector:
                         """
 
 
-    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True, suffixes=[]) -> pd.DataFrame:
-        query=self.build_cypher_nodes(label, max_depth,many2one,suffixes)
+    def fetch_as_dataframe(self, out, label: str, max_depth: Optional[int],many2one,checkedges=True, suffixes=[],to_keep=[]) -> pd.DataFrame:
+        query=self.build_cypher_nodes(label, max_depth,many2one,suffixes,to_keep)
         result=self.execute_query(query)
         if checkedges:
-            query_edge = self.build_cypher_edges(label, max_depth,many2one,suffixes)
+            query_edge = self.build_cypher_edges(label, max_depth,many2one,suffixes,to_keep)
             result.extend(self.execute_query(query_edge))
         rows = []
         for rec in result:
@@ -432,35 +434,28 @@ class Neo4jConnector:
 
         return created
 
-    def numeric_properties_with_min_nonnull_ratio(self,
+    def numeric_properties_with_min_nonnull_ratio(
+            self,
             min_nonnull_ratio: float,
             numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
             drop_suffixes: Optional[Iterable[str]] = None,
     ) -> List[Dict]:
         """
-        Return all (label, property) numeric pairs whose non-null ratio >= min_nonnull_ratio.
-
-        Args:
-            session: existing neo4j.Session
-            min_nonnull_ratio: minimum ratio in [0,1]
-            numeric_types: APOC meta types considered numeric
-            drop_suffixes: optional suffixes to exclude (e.g., ["_id","_code"])
-
-        Returns:
-            [{"label", "property", "nonNullCount", "totalCount", "nonNullRatio"}, ...]
+        Return numeric properties on nodes *and* relationships with non-null ratio >= min_nonnull_ratio.
+        Output rows: kind ('node'|'relationship'), label/relType, property, counts, ratio.
         """
-        # Compile one end-anchored regex for suffix exclusion (fast)
+        # End-anchored regex for suffix exclusion
         drop_re = ""
         if drop_suffixes:
             safe = [re.escape(s) for s in drop_suffixes]
             drop_re = r"(?:%s)$" % "|".join(safe)
 
         cypher = """
-        // 1) Enumerate numeric label–property pairs; normalize label without APOC text funcs
+        // ===================== NODES =====================
         CALL apoc.meta.nodeTypeProperties()
         YIELD nodeType, propertyName, propertyTypes
         WITH
-          // strip one leading ':' if present
+          // strip leading ':' if present
           CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
           propertyName AS property,
           propertyTypes
@@ -475,41 +470,60 @@ class Neo4jConnector:
           propertyTypes
         WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
           AND ($dropRe = '' OR NOT property =~ $dropRe)
-        WITH collect({label: cleanLabel, property: property}) AS props
-
-        // 2) Total node counts per label (once)
-        WITH props, apoc.coll.toSet([p IN props | p.label]) AS distinctLabels
-        CALL {
-          WITH distinctLabels
-          UNWIND distinctLabels AS lbl
-          CALL apoc.cypher.run(
-            apoc.text.format('MATCH (n:`%s`) RETURN count(n) AS total', [lbl]),
-            {}
-          ) YIELD value
-          RETURN collect({label: lbl, total: value.total}) AS totals
-        }
-        WITH props, totals
-
-        // 3) Non-null counts per (label, property)
-        UNWIND props AS p
-        CALL apoc.cypher.run(
-          apoc.text.format('MATCH (n:`%s`) WHERE n.`%s` IS NOT NULL RETURN count(n) AS cnt',
-                           [p.label, p.property]),
-          {}
-        ) YIELD value
+        // count totals and non-nulls without dynamic pattern: use labels(n) and dynamic prop access
+        MATCH (n)
+        WHERE cleanLabel IN labels(n)
         WITH
-          p.label AS label,
-          p.property AS property,
-          value.cnt AS nonNullCount,
-          [t IN totals WHERE t.label = p.label][0].total AS totalCount
+          'node' AS kind,
+          cleanLabel AS label,
+          NULL AS relType,
+          property,
+          count(n) AS totalCount,
+          sum(CASE WHEN n[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio >= $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        UNION ALL
+
+        // ===================== RELATIONSHIPS =====================
+        CALL apoc.meta.relTypeProperties()
+        YIELD relType, propertyName, propertyTypes
         WITH
-          label, property, nonNullCount, totalCount,
-          (CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END) AS nonNullRatio
-        WHERE nonNullRatio < $minNonNullRatio
-        RETURN label, property, nonNullCount, totalCount, nonNullRatio
-        ORDER BY nonNullRatio DESC, label, property
+          // remove surrounding backticks and any accidental leading ':'
+            CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE WHEN size(sType)>=2 AND left(sType,1)='`' AND right(sType,1)='`'
+              THEN substring(sType,1,size(sType)-2)
+            ELSE sType
+          END AS cleanType,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        // count totals and non-nulls without dynamic pattern: use type(r) and dynamic prop access
+        MATCH ()-[r]-()
+        WHERE type(r) = cleanType
+        WITH
+          'relationship' AS kind,
+          NULL AS label,
+          cleanType AS relType,
+          property,
+          count(r) AS totalCount,
+          sum(CASE WHEN r[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio >= $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        // consistent final ordering
+        ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
         """
-        session=self._driver.session()
+
+        session = self._driver.session()
         recs = session.run(
             cypher,
             NUMERIC_TYPES=list(numeric_types),
@@ -518,8 +532,6 @@ class Neo4jConnector:
         )
         #return [dict(r) for r in recs]
         return [r["property"] for r in recs]
-
-
 
     def drop_indexes_on_numeric_properties(
             self,
@@ -679,8 +691,9 @@ if __name__ == "__main__":
     user="neo4j"
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            "airportnew": ["Airport", "Country", "City"],
+                           #"airportnew": ["Country"],
                            "recommendations":["Actor","Movie","Director"],
-                         #  "icijleaks":["Entity", "Intermediary", "Officer"]
+                           #"icijleaks":["Entity", "Intermediary", "Officer"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -704,10 +717,11 @@ if __name__ == "__main__":
     NONULLS = True
 
     # if unwanted properties, acceptable density (validation) are pushed down indicator collection
-    PUSHDOWN = True
+    PUSHDOWN = False
 
-    # should we drop all indices on numerical properties
+    # should we drop/create all indices on numerical properties
     DROP_INDEX = True
+    CREATE_INDEX = True
 
     # for tests
     nbRuns=1
@@ -731,19 +745,22 @@ if __name__ == "__main__":
                         dry_run=False,  # set True to preview
                     )
                 # create indices
-                print("Indexing numerical properties")
-                start_time = time.time()
-                res = db.create_indexes_on_numeric_properties(
-                    numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=unwanted_suffixes,
-                    include_nodes=True,
-                    include_relationships=True,
-                    dry_run=False,  # set True to preview without creating
-                )
-                end_time = time.time()
-                timings_indexes = end_time - start_time
-                print("Node indexes:", res["node"])
-                print("Relationship indexes:", res["relationship"])
+                if CREATE_INDEX:
+                    print("Indexing numerical properties")
+                    start_time = time.time()
+                    res = db.create_indexes_on_numeric_properties(
+                        numeric_types=("Long", "Double", "Float", "Integer"),
+                        drop_suffixes=unwanted_suffixes,
+                        include_nodes=True,
+                        include_relationships=True,
+                        dry_run=False,  # set True to preview without creating
+                    )
+                    end_time = time.time()
+                    timings_indexes = end_time - start_time
+                    print("Node indexes:", res["node"])
+                    print("Relationship indexes:", res["relationship"])
+                else:
+                    timings_indexes = 0
 
                 # finds relationship cardinalities
                 print("Finding cardinalities")
@@ -761,11 +778,15 @@ if __name__ == "__main__":
                         drop_suffixes=unwanted_suffixes,  # optional
                     )
                     # print('time nulls:', time.time() - start_time)
-                    suffixes_for_removal = unwanted_suffixes + props
+                    #suffixes_for_removal = unwanted_suffixes + props
+                    suffixes_for_removal=[]
+                    #to_keep=props
+                    to_keep=[s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
                     end_time = time.time()
                     timings_density = end_time - start_time
                 else:
                     suffixes_for_removal = []
+                    to_keep = [] #no pushdown
                     timings_density = 0
                 timings_preprocessing=timings_indexes+timings_density
 
@@ -778,16 +799,16 @@ if __name__ == "__main__":
 
                     # get context
                     # get * relationships properties for label
-                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True,only_reltypes=manyToMany,suffixes=suffixes_for_removal)
+                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True,only_reltypes=manyToMany,suffixes=suffixes_for_removal,to_keep=to_keep)
                     #print('* props:', time.time() - start_time)
 
                     # get 1 relationships properties for label (and save those to csv)
                     out="sample_data/"+label+"_indicators.csv"
                     #do not send queries for edges if they do not have properties
                     if dict_databases_numbers[db_name][3] == float(0):
-                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,False, suffixes_for_removal)
+                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,False, suffixes_for_removal,to_keep=to_keep)
                     else:
-                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,True, suffixes_for_removal)
+                        df121=db.fetch_as_dataframe(out,label,5,manyToOne,True, suffixes_for_removal,to_keep=to_keep)
                     #print('1 props:', time.time() - start_time)
 
                     #out join * and 1
@@ -798,7 +819,7 @@ if __name__ == "__main__":
                     #print('degrees:', time.time() - start_time)
 
                     # then outer join with dftemp
-                    dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="out_id")
+                    dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
 
                     end_time = time.time()
                     indicatorsTimings = end_time - start_time

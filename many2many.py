@@ -73,6 +73,7 @@ def _aggregate_neighbors_for_reltype(
     agg: AggFn = "sum",
     include_rels: bool = True,
     suffixes: Optional[Iterable[str]] = None,
+    to_keep=[]
 ) -> Dict[int, Dict[str, float]]:
     """
     For a given label and relationship type, aggregate numeric properties from:
@@ -81,24 +82,46 @@ def _aggregate_neighbors_for_reltype(
     Returns: { id(n): { column_name: value, ... }, ... }
     """
     lbl = _backtick(label)
+    props=to_keep
 
     # Map Python agg -> Cypher function
     agg_func = {"sum": "sum", "avg": "avg", "min": "min", "max": "max", "count": "count"}[agg]
     #suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
     suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
-
-    # --- Neighbor node properties ---
-    q_neighbors = f"""
-    MATCH (n:{lbl})-[r]-(m)
-    WHERE type(r) = $reltype
-    WITH n, m
-    UNWIND keys(m) AS k
-    WITH n, k, m[k] AS v
-    // Keep numeric values only (INTEGER, FLOAT, NUMBER)
-    WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
-    AND NOT k =~ '{suffixRegex}' 
-    RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
-    """
+    if to_keep==[]:
+        # --- Neighbor node properties ---
+        q_neighbors = f"""
+        MATCH (n:{lbl})-[r]-(m)
+        WHERE type(r) = $reltype
+        WITH n, m
+        UNWIND keys(m) AS k
+        WITH n, k, m[k] AS v
+        // Keep numeric values only (INTEGER, FLOAT, NUMBER)
+        WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+        AND NOT k =~ '{suffixRegex}' 
+        RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+        """
+        q_neighbors = f"""
+                        MATCH (n:{lbl})-[r]-(m)
+                        WHERE type(r) = $reltype
+                        WITH n, m
+                        UNWIND keys(m) AS k
+                        WITH n, k, m[k] AS v
+                        // Keep numeric values only (INTEGER, FLOAT, NUMBER)
+                        WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                        RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+                        """
+    else:
+        # --- Neighbor node properties ---
+        q_neighbors = f"""
+                        MATCH (n:{lbl})-[r]-(m)
+                        WHERE type(r) = $reltype
+                        UNWIND {props} AS k
+                        WITH n, k, m[k] AS v
+                        // Keep numeric values only (INTEGER, FLOAT, NUMBER)
+                        WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                        RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+                        """
     neighbor_rows = session.run(q_neighbors, {"reltype": reltype}).data()
 
     result: Dict[int, Dict[str, float]] = {}
@@ -109,15 +132,33 @@ def _aggregate_neighbors_for_reltype(
 
     # --- Relationship properties ---
     if include_rels:
-        q_rels = f"""
-        MATCH (n:{lbl})-[r]-()
-        WHERE type(r) = $reltype
-        UNWIND keys(r) AS k
-        WITH n, k, r[k] AS v
-        WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
-        AND NOT k =~ '{suffixRegex}' 
-        RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
-        """
+        if to_keep== []:
+            q_rels = f"""
+            MATCH (n:{lbl})-[r]-()
+            WHERE type(r) = $reltype
+            UNWIND keys(r) AS k
+            WITH n, k, r[k] AS v
+            WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+            AND NOT k =~ '{suffixRegex}'
+            RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+            """
+            q_rels = f"""
+                                    MATCH (n:{lbl})-[r]-()
+                                    WHERE type(r) = $reltype
+                                    UNWIND keys(r) AS k
+                                    WITH n, k, r[k] AS v
+                                    WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                                    RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+                                    """
+        else:
+            q_rels = f"""
+                                    MATCH (n:{lbl})-[r]-()
+                                    WHERE type(r) = $reltype
+                                    UNWIND {props} AS k
+                                    WITH n, k, r[k] AS v
+                                    WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                                    RETURN id(n) AS nid, k AS prop, {agg_func}(toFloat(v)) AS val
+                                    """
         rel_rows = session.run(q_rels, {"reltype": reltype}).data()
         for row in rel_rows:
             nid = row["nid"]
@@ -134,6 +175,7 @@ def aggregate_m2m_properties_for_label(
     include_relationship_properties: bool = True,
     only_reltypes: Optional[Iterable[str]] = None,
     suffixes: Optional[Iterable[str]] = None,
+    to_keep = None
 ) -> pd.DataFrame:
     """
     High-level function:
@@ -167,7 +209,7 @@ def aggregate_m2m_properties_for_label(
 
         for rt in reltypes:
             partial = _aggregate_neighbors_for_reltype(
-                session, label, rt, agg=agg, include_rels=include_relationship_properties, suffixes=suffixes
+                session, label, rt, agg=agg, include_rels=include_relationship_properties, suffixes=suffixes, to_keep=to_keep
             )
             # Merge maps
             for nid, cols in partial.items():
