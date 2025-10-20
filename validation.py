@@ -84,31 +84,29 @@ def process_dataframe(
         s_orig = df[col]
         dtype_before = str(s_orig.dtype)
 
-        if not pushdown:
-            # Compute ratios
-            null_ratio = s_orig.isna().mean() if total_rows > 0 else np.nan
 
-            non_null = s_orig.dropna()
-            non_null_count = len(non_null)
-            if non_null_count == 0:
-                distinct_ratio = np.nan
-            else:
-                distinct_ratio = non_null.nunique(dropna=True) / non_null_count
+        # Compute ratios
+        null_ratio = s_orig.isna().mean() if total_rows > 0 else np.nan
 
-            # Rule (i): null ratio threshold
-            if pd.notna(null_ratio) and null_ratio > null_thresh:
-                report_rows.append({
-                    "column": col,
-                    "action": "dropped",
-                    "reason": "null_ratio>thr",
-                    "null_ratio": null_ratio,
-                    "distinct_ratio": distinct_ratio,
-                    "dtype_before": dtype_before,
-                })
-                continue
+        non_null = s_orig.dropna()
+        non_null_count = len(non_null)
+        if non_null_count == 0:
+            distinct_ratio = np.nan
         else:
-            null_ratio='N/A'
-            non_null_count='N/A'
+            distinct_ratio = non_null.nunique(dropna=True) / non_null_count
+
+        # Rule (i): null ratio threshold
+        #if pd.notna(null_ratio) and null_ratio > null_thresh:
+        #    report_rows.append({
+        #        "column": col,
+        #        "action": "dropped",
+        #        "reason": "null_ratio>thr",
+        #        "null_ratio": null_ratio,
+        #        "distinct_ratio": distinct_ratio,
+        #        "dtype_before": dtype_before,
+        #    })
+        #    continue
+
 
             # Type handling
         s_for_scale = s_orig

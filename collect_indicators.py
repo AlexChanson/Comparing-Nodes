@@ -536,6 +536,108 @@ class Neo4jConnector:
         #return [dict(r) for r in recs]
         return [r["property"] for r in recs]
 
+
+    def numeric_properties_with_min_null_ratio(
+            self,
+            min_nonnull_ratio: float,
+            numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+            drop_suffixes: Optional[Iterable[str]] = None,
+    ) -> List[Dict]:
+        """
+        Return numeric properties on nodes *and* relationships with non-null ratio >= min_nonnull_ratio.
+        Output rows: kind ('node'|'relationship'), label/relType, property, counts, ratio.
+        """
+        # End-anchored regex for suffix exclusion
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:%s)$" % "|".join(safe)
+
+        cypher = """
+        // ===================== NODES =====================
+        CALL apoc.meta.nodeTypeProperties()
+        YIELD nodeType, propertyName, propertyTypes
+        WITH
+          // strip leading ':' if present
+          CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          // strip surrounding backticks if present
+          CASE
+            WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+              THEN substring(s1,1,size(s1)-2)
+            ELSE s1
+          END AS cleanLabel,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        // count totals and non-nulls without dynamic pattern: use labels(n) and dynamic prop access
+        MATCH (n)
+        WHERE cleanLabel IN labels(n)
+        WITH
+          'node' AS kind,
+          cleanLabel AS label,
+          NULL AS relType,
+          property,
+          count(n) AS totalCount,
+          sum(CASE WHEN n[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio < $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        UNION ALL
+
+        // ===================== RELATIONSHIPS =====================
+        CALL apoc.meta.relTypeProperties()
+        YIELD relType, propertyName, propertyTypes
+        WITH
+          // remove surrounding backticks and any accidental leading ':'
+            CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE WHEN size(sType)>=2 AND left(sType,1)='`' AND right(sType,1)='`'
+              THEN substring(sType,1,size(sType)-2)
+            ELSE sType
+          END AS cleanType,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        // count totals and non-nulls without dynamic pattern: use type(r) and dynamic prop access
+        MATCH ()-[r]-()
+        WHERE type(r) = cleanType
+        WITH
+          'relationship' AS kind,
+          NULL AS label,
+          cleanType AS relType,
+          property,
+          count(r) AS totalCount,
+          sum(CASE WHEN r[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio < $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        // consistent final ordering
+        ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
+        """
+
+        session = self._driver.session()
+        recs = session.run(
+            cypher,
+            NUMERIC_TYPES=list(numeric_types),
+            minNonNullRatio=float(min_nonnull_ratio),
+            dropRe=drop_re,
+        )
+        #return [dict(r) for r in recs]
+        return [r["property"] for r in recs]
+
+
+
     def drop_indexes_on_numeric_properties(
             self,
             numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
@@ -682,21 +784,83 @@ class Neo4jConnector:
         return dropped
 
 
-if __name__ == "__main__":
+
+
+    def count_numeric_properties(self):
+        """
+        Count the total number of numeric properties in all nodes and relationships
+        of a Neo4j database.
+
+        Parameters
+        ----------
+        uri : str
+            Bolt URI of the database, e.g., "bolt://localhost:7687"
+        user : str
+            Username for authentication
+        password : str
+            Password for authentication
+        db : str
+            Database name (default: "neo4j")
+
+        Returns
+        -------
+        dict
+            {
+              "nodes_numeric_props": int,
+              "rels_numeric_props": int,
+              "total_numeric_props": int
+            }
+        """
+
+        with self._driver.session() as session:
+            # Cypher list of numeric property types
+            numeric_types = ["INTEGER", "FLOAT", "DOUBLE", "LONG"]
+
+            # --- Count numeric properties in nodes ---
+            cypher = """
+            CALL {
+                MATCH (n)
+                UNWIND keys(n) AS k
+                WITH k, apoc.meta.cypher.type(n[k]) AS t
+                WHERE t IN $numeric_types
+                RETURN collect(DISTINCT k) AS node_names
+            }
+            CALL {
+                MATCH ()-[r]->()
+                UNWIND keys(r) AS k
+                WITH k, apoc.meta.cypher.type(r[k]) AS t
+                WHERE t IN $numeric_types
+                RETURN collect(DISTINCT k) AS rel_names
+            }
+            RETURN node_names, rel_names, size(node_names) AS node_count, size(rel_names) AS rel_count,
+                size(apoc.coll.toSet(node_names + rel_names)) AS total   
+            """
+            rec =  session.run(cypher, numeric_types=numeric_types).single()
+            node_names = sorted(rec["node_names"])
+            rel_names = sorted(rec["rel_names"])
+            node_count = rec["node_count"]
+            rel_count = rec["rel_count"]
+            total = rec["total"]
+
+        return node_count + rel_count
+
+
+def main(pushdown,null_ratio,nbRuns):
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
-    column_names = ['run','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_total']
+    column_names = ['run','pushdown','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_total','ratio_prop_dropped']
     dfresults = pd.DataFrame(columns=column_names)
 
     #  URI/user/password
     uri="bolt://localhost:7687"
     user="neo4j"
     dict_databases_labels={#"airports":["Airport","Country","City"],
-                           "airportnew": ["Airport", "Country", "City"],
-                           #"airportnew": ["Country"],
-                           "recommendations":["Actor","Movie","Director"],
-                           "icijleaks":["Entity", "Intermediary", "Officer"]
+                           #"airportnew": ["Airport", "Country", "City"],
+                           "airportnew": ["City"],
+                           "recommendations":["Actor"],
+                        # "recommendations":["Actor","Movie","Director"],
+                           #"icijleaks":["Entity", "Intermediary", "Officer"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -710,7 +874,7 @@ if __name__ == "__main__":
         "icijleaks":[20165233,339267,1,0]
     }
     # thresholds for validating and transforming (scale,contextualize) candidate indicators
-    null_threshold = 0.5
+    null_threshold = null_ratio
     distinct_low = 0.000001
     distinct_high = 1
     correlation_threshold = 0.98
@@ -720,14 +884,14 @@ if __name__ == "__main__":
     NONULLS = True
 
     # if unwanted properties, acceptable density (validation) are pushed down indicator collection
-    PUSHDOWN = True
+    PUSHDOWN = pushdown
 
     # should we drop/create all indices on numerical properties
     DROP_INDEX = True
     CREATE_INDEX = True
 
     # for tests
-    nbRuns=3
+    nbRuns=nbRuns
 
     for run in range(nbRuns):
         for db_name in dict_databases_labels.keys():
@@ -738,6 +902,8 @@ if __name__ == "__main__":
             start_dbms(dbspec)
 
             with Neo4jConnector(uri, user, db_name) as db:
+                #counts the number of numeric properties
+                resprop=db.count_numeric_properties()
                 # drop index
                 if DROP_INDEX:
                     res = db.drop_indexes_on_numeric_properties(
@@ -776,7 +942,7 @@ if __name__ == "__main__":
                     # finding properties with acceptable density
                     start_time = time.time()
                     props = db.numeric_properties_with_min_nonnull_ratio(
-                        min_nonnull_ratio=null_threshold,
+                        min_nonnull_ratio=1-null_threshold,
                         numeric_types=("Long", "Double", "Float", "Integer"),
                         drop_suffixes=unwanted_suffixes,  # optional
                     )
@@ -785,9 +951,24 @@ if __name__ == "__main__":
                     suffixes_for_removal=[]
                     #to_keep=props
                     to_keep=[s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                    print("number of properties to keep:", len(to_keep))
+                    ratio_dropped= 100*(resprop - len(to_keep)) /resprop
                     end_time = time.time()
                     timings_density = end_time - start_time
                 else:
+                    props = db.numeric_properties_with_min_nonnull_ratio(
+                        min_nonnull_ratio=1 - null_threshold,
+                        numeric_types=("Long", "Double", "Float", "Integer"),
+                        drop_suffixes=unwanted_suffixes,  # optional
+                    )
+                    to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                    ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                    toPassForValidation = db.numeric_properties_with_min_null_ratio(
+                        min_nonnull_ratio=1 - null_threshold,
+                        numeric_types=("Long", "Double", "Float", "Integer"),
+                        drop_suffixes=unwanted_suffixes,  # optional
+                    )
+                    #ratio_dropped = 100*len(toPassForValidation) / resprop
                     suffixes_for_removal = []
                     to_keep = [] #no pushdown
                     timings_density = 0
@@ -834,7 +1015,7 @@ if __name__ == "__main__":
                     if PUSHDOWN:
                         suffixes_unwanted=[]
                     else:
-                        suffixes_unwanted=unwanted_suffixes
+                        suffixes_unwanted=unwanted_suffixes+toPassForValidation
 
                     start_time = time.time()
                     # first remove unwanted indicators
@@ -874,13 +1055,13 @@ if __name__ == "__main__":
                     #partition={}
                     #end_time = time.time()
                     #timingsPartition = end_time - start_time
-                    timings_total=indicatorsTimings+validationTimings +(timings_preprocessing+timings_cardinalities)/3
+                    timings_total=indicatorsTimings+validationTimings +timings_preprocessing+timings_cardinalities
 
                     #computes avg numerical properties for node type label
                     avgprop=db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
                     #save to result dataframe
-                    dfresults.loc[len(dfresults)] = [run, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total]
+                    dfresults.loc[len(dfresults)] = [run, PUSHDOWN, db_name, dict_databases_numbers[db_name][0], dict_databases_numbers[db_name][1], label, keep.shape[1] - 1, len(keep), avgprop, timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped ]
                     if nbRuns!=1:
                         dfresults.to_csv('reports/tempres'+ formatted_time +'.csv', mode='a', header=True)
             stop_dbms(dbspec)
@@ -890,4 +1071,26 @@ if __name__ == "__main__":
     print("\n===== LaTeX Preview =====\n")
     print(latex)
     # to analyze correlations in the result file
-    analyzeIndicatorDevisingTimes.main(out,Path('reports'))
+    analyzeIndicatorDevisingTimes.main(Path('reports/averaged_time_by_label.csv'),Path('reports'))
+    return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
+
+
+def testPushdown():
+    fileResults = 'reports/results_test_pushdown.csv'
+    column_names = ['run', 'pushdown', 'null_ratio', 'database', 'label', 'indicators#', 'nodes#',
+                    'time_Preprocessing', 'time_Cardinalities', 'time_Indicators', 'time_Validation', 'time_total',
+                    'ratio_prop_dropped']
+    dfresults = pd.DataFrame(columns=column_names)
+    for run in range(3):
+        for pushdown in [False,True]:
+            for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
+                db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped=main(pushdown,null_ratio,1)
+                dfresults.loc[len(dfresults)] = [run, pushdown, null_ratio ,  db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,
+                                                 validationTimings, timings_total, ratio_dropped]
+    dfresults.to_csv(fileResults, mode='a', header=True)
+
+
+if __name__ == "__main__":
+    testPushdown()
+    main(False, 0.5, 1)
+
