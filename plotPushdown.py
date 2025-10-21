@@ -1,112 +1,131 @@
-#!/usr/bin/env python3
-"""
-Plot total time by ratio_prop_dropped with pushdown split and error bars.
-
-- Averages ALL columns whose name starts with 'time_' over runs (column 'run').
-- Plots mean of time_total vs ratio_prop_dropped for pushdown False/True.
-- Adds error bars (standard deviation across runs) for each point.
-"""
-
-import argparse
+from pathlib import Path
 import pandas as pd
-import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from pathlib import Path
 
-def load_data(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    # Ensure expected columns exist
-    required = {"run", "pushdown", "ratio_prop_dropped"}
+def plot_pushdown_by_label(csv_path: str) -> None:
+    # Load
+    df = pd.read_csv(csv_path)
+
+    # 1) Normalize column names (strip + lowercase)
+    df.columns = df.columns.str.strip()
+    df = df.rename(columns={c: c.lower() for c in df.columns})
+
+    # 2) Required columns
+    required = {"run", "pushdown", "ratio_prop_dropped", "label"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"Missing required columns: {missing}")
-    # Coerce types if needed
+        raise ValueError(f"Missing required columns after normalization: {missing}")
+
+    # 3) Coerce pushdown to bool
     if df["pushdown"].dtype == object:
-        df["pushdown"] = df["pushdown"].astype(str).str.lower().map({"true": True, "false": False})
-    return df
-
-def aggregate_times(df: pd.DataFrame):
-    # Identify all time_* columns
-    time_cols = [c for c in df.columns if c.startswith("time_")]
-    if "time_total" not in time_cols:
-        raise ValueError("Column 'time_total' not found among time_* columns.")
-    group_keys = ["ratio_prop_dropped", "pushdown"]
-
-    mean_df = (
-        df.groupby(group_keys, as_index=False)[time_cols]
-          .mean()
-          .rename(columns={c: f"{c}_mean" for c in time_cols})
-    )
-    std_df = (
-        df.groupby(group_keys, as_index=False)[time_cols]
-          .std(ddof=1)
-          .rename(columns={c: f"{c}_std" for c in time_cols})
-    )
-    agg = pd.merge(mean_df, std_df, on=group_keys, how="inner")
-    # Sort by x then by pushdown for a clean plot order
-    agg = agg.sort_values(["ratio_prop_dropped", "pushdown"]).reset_index(drop=True)
-    return agg, time_cols
-
-def plot_time_total(agg: pd.DataFrame, outpath: Path, title: str = None):
-    # Prepare plotting frame for seaborn (mean as y)
-    plot_df = agg.rename(
-        columns={
-            "time_total_mean": "time_total",
-            "ratio_prop_dropped": "ratio"
-        }
-    ).copy()
-    # Seaborn lineplot for means
-    sns.set_theme(style="whitegrid")
-    plt.figure(figsize=(10, 6))
-    ax = sns.lineplot(
-        data=plot_df,
-        x="ratio",
-        y="time_total",
-        hue="pushdown",
-        marker="o"
-    )
-
-    # Add error bars from std (matplotlib), matching each hue series
-    for push_val, sub in plot_df.groupby("pushdown"):
-        sub = sub.sort_values("ratio")
-        # yerr pulls from the std column in the original aggregated df
-        yerr = agg.loc[sub.index, "time_total_std"].to_numpy()
-        plt.errorbar(
-            sub["ratio"].to_numpy(),
-            sub["time_total"].to_numpy(),
-            yerr=yerr,
-            fmt="none",
-            capsize=4,
-            linewidth=0.8,
-            alpha=0.9
+        df["pushdown"] = (
+            df["pushdown"].astype(str).str.strip().str.lower()
+              .map({"true": True, "false": False, "1": True, "0": False})
         )
+    else:
+        df["pushdown"] = df["pushdown"].astype(int).astype(bool)
 
-    ax.set_xlabel("ratio_prop_dropped (%)" if plot_df["ratio"].max() <= 100 else "ratio_prop_dropped")
-    ax.set_ylabel("Total time (time_total)")
-    if title:
+    # 4) Find and coerce time_* columns to numeric
+    time_cols = [c for c in df.columns if c.startswith("time_")]
+    for c in time_cols:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Map capitalization variants to canonical lowercase names
+    canon_map = {}
+    for c in time_cols:
+        lc = c.lower()
+        if lc in {"time_total", "time_indicators", "time_validation"} and lc != c:
+            canon_map[c] = lc
+    if canon_map:
+        df = df.rename(columns=canon_map)
+
+    time_cols = [c for c in df.columns if c.startswith("time_")]
+    for m in ("time_total", "time_indicators", "time_validation"):
+        if m not in time_cols:
+            raise ValueError(f"Required time column '{m}' not found. Available: {time_cols}")
+
+    # 5) Aggregate: mean & std over runs for each (label, pushdown, ratio)
+    keys = ["label", "pushdown", "ratio_prop_dropped"]
+    mean_df = (df.groupby(keys, as_index=False)[time_cols]
+                 .mean()
+                 .rename(columns={c: f"{c}_mean" for c in time_cols}))
+    std_df  = (df.groupby(keys, as_index=False)[time_cols]
+                 .std(ddof=1)
+                 .rename(columns={c: f"{c}_std" for c in time_cols}))
+    agg = (mean_df.merge(std_df, on=keys, how="inner")
+                  .sort_values(keys)
+                  .reset_index(drop=True))
+
+    # 6) Build tidy frame just for the 3 requested metrics
+    records = []
+    for metric in ("time_total", "time_indicators", "time_validation"):
+        m_mean, m_std = f"{metric}_mean", f"{metric}_std"
+        if m_mean not in agg.columns or m_std not in agg.columns:
+            raise ValueError(f"Expected '{m_mean}' and '{m_std}' in aggregated data.")
+        for _, row in agg.iterrows():
+            records.append({
+                "label": row["label"],
+                "pushdown": row["pushdown"],
+                "ratio": row["ratio_prop_dropped"],
+                "mean": row[m_mean],
+                "std": 0.0 if pd.isna(row[m_std]) else row[m_std],
+                "metric": metric
+            })
+    tidy = pd.DataFrame.from_records(records)
+
+    # 7) Plot helper
+    def _lineplot_with_errorbars(plot_df, metric, filename, title):
+        subset = plot_df[plot_df["metric"] == metric].copy()
+        sns.set_theme(style="whitegrid")
+        plt.figure(figsize=(10, 6))
+        ax = sns.lineplot(
+            data=subset,
+            x="ratio", y="mean",
+            hue="label",         # City vs Actor
+            style="pushdown",    # True vs False
+            markers=True, dashes=True
+        )
+        # Std error bars per (label, pushdown)
+        for (lbl, pdwn), sub in subset.groupby(["label", "pushdown"]):
+            sub = sub.sort_values("ratio")
+            plt.errorbar(
+                sub["ratio"], sub["mean"], yerr=sub["std"],
+                fmt="none", capsize=4, linewidth=0.8, alpha=0.9
+            )
+        ax.set_xlabel("ratio_prop_dropped")
+        ax.set_ylabel(metric)
         ax.set_title(title)
-    ax.legend(title="pushdown", loc="best")
-    plt.tight_layout()
-    plt.savefig(outpath, dpi=200)
-    plt.close()
+        ax.legend(title="label / pushdown", loc="best")
+        plt.tight_layout()
+        out = Path(csv_path).resolve().parent / filename
+        plt.savefig(out, dpi=200)
+        plt.close()
+        return out
 
-def main():
-
-    df = load_data('reports/results_test_pushdown_1.csv')
-    agg, time_cols = aggregate_times(df)
-
-    # (Optional) print a quick summary of the aggregated time_* means
-    summary_cols = ["ratio_prop_dropped", "pushdown"] + [c for c in agg.columns if c.endswith("_mean")]
-    print("\nAveraged time_* columns over runs (means):")
-    print(agg[summary_cols].to_string(index=False))
-
-    plot_time_total(
-        agg,
-        Path('reports/results_test_pushdown.png'),
-        title="time_total vs ratio_prop_dropped (±1 SD across runs)"
+    # 8) Produce the three figures
+    _lineplot_with_errorbars(
+        tidy, "time_total",
+        "time_total_by_ratio_label_pushdown.png",
+        "time_total vs ratio_prop_dropped (±1 SD) by label & pushdown"
     )
-    print(f"\nSaved plot to: reports/results_test_pushdown_1.pdf")
+    _lineplot_with_errorbars(
+        tidy, "time_indicators",
+        "time_indicators_by_ratio_label_pushdown.png",
+        "time_indicators vs ratio_prop_dropped (±1 SD) by label & pushdown"
+    )
+    _lineplot_with_errorbars(
+        tidy, "time_validation",
+        "time_validation_by_ratio_label_pushdown.png",
+        "time_validation vs ratio_prop_dropped (±1 SD) by label & pushdown"
+    )
 
+def main(file):
+    # Default to the uploaded filename if present
+    #default_csv = "results_test_pushdown.csv"
+    plot_pushdown_by_label(file)
+
+# Optional CLI entry point (keeps the required single-parameter function intact)
 if __name__ == "__main__":
-    main()
+    main('reports/pushdown_results_city_airport.csv')
+

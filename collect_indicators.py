@@ -7,6 +7,7 @@ import pandas as pd
 
 import analyzeIndicatorDevisingTimes
 import averageRunsCollectAndLatex
+import plotPushdown
 import utility
 from experiments import heuristics
 from many2many import aggregate_m2m_properties_for_label
@@ -857,8 +858,7 @@ def main(pushdown,null_ratio,nbRuns):
     user="neo4j"
     dict_databases_labels={#"airports":["Airport","Country","City"],
                            #"airportnew": ["Airport", "Country", "City"],
-                           "airportnew": ["City"],
-                           "recommendations":["Actor"],
+                           "airportnew": ["Airport", "City"], #
                         # "recommendations":["Actor","Movie","Director"],
                            #"icijleaks":["Entity", "Intermediary", "Officer"]
                            }
@@ -1072,25 +1072,30 @@ def main(pushdown,null_ratio,nbRuns):
     print(latex)
     # to analyze correlations in the result file
     analyzeIndicatorDevisingTimes.main(Path('reports/averaged_time_by_label.csv'),Path('reports'))
-    return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
-
+    #return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
+    return dfresults
 
 def testPushdown():
     fileResults = 'reports/results_test_pushdown.csv'
-    column_names = ['run', 'pushdown', 'null_ratio', 'database', 'label', 'indicators#', 'nodes#',
-                    'time_Preprocessing', 'time_Cardinalities', 'time_Indicators', 'time_Validation', 'time_total',
-                    'ratio_prop_dropped']
+    #column_names = ['run', 'pushdown', 'null_ratio', 'database', 'label', 'indicators#', 'nodes#',
+    #                'time_Preprocessing', 'time_Cardinalities', 'time_Indicators', 'time_Validation', 'time_total',
+    #                'ratio_prop_dropped']
+    column_names = ['run','pushdown','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_total','ratio_prop_dropped']
     dfresults = pd.DataFrame(columns=column_names)
     for run in range(3):
         for pushdown in [False,True]:
-            for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
-                db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped=main(pushdown,null_ratio,1)
-                dfresults.loc[len(dfresults)] = [run, pushdown, null_ratio ,  db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,
-                                                 validationTimings, timings_total, ratio_dropped]
+            #for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
+            for null_ratio in [0.5, 0.3]:
+                #db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped=main(pushdown,null_ratio,1)
+                #dfresults.loc[len(dfresults)] = [run, pushdown, null_ratio ,  db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped]
+                result = main(pushdown, null_ratio, 1)
+                #dfresults.loc[len(dfresults)] =
+                dfresults=pd.concat([dfresults,result])
     dfresults.to_csv(fileResults, mode='a', header=True)
+    plotPushdown.main(fileResults)
 
 
 if __name__ == "__main__":
     testPushdown()
-    main(False, 0.5, 1)
+    #main(True, 0.5, 1)
 
