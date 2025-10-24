@@ -1,49 +1,50 @@
 from copy import copy
-from utility import *
-from numpy.typing import NDArray
-from numba import jit, njit, types
-from numba.experimental import jitclass
+
+from numba import njit, types
 from numba.types import Optional
-from numba.typed import List
+from numpy.typing import NDArray
+from utility import *
 
 node_type = types.DeferredType()
 
 spec = [
-    ('sol', types.ListType(types.int64)),        # list[int]
-    ('depth', types.int64),                      # int
-    ('parent', Optional(node_type)),             # Node | None
-    ('membership', types.ListType(types.int64)), # list[int]
-    ('root', types.boolean),                     # bool
-    ('obj', types.float64),                      # float
+    ('sol', types.ListType(types.int64)),  # list[int]
+    ('depth', types.int64),  # int
+    ('parent', Optional(node_type)),  # Node | None
+    ('membership', types.ListType(types.int64)),  # list[int]
+    ('root', types.boolean),  # bool
+    ('obj', types.float64),  # float
 ]
 
 
-#@jitclass()
+# @jitclass()
 class Node:
-    def __init__(self):
-        self.sol : list[int] = []
-        self.depth : int = 0
-        self.parent : Node = None
-        self.membership : list[int] = []
-        self.root : bool = False
-        self.obj : float = float('nan')
+    def __init__(self) -> None:
+        self.sol: list[int] = []
+        self.depth: int = 0
+        self.parent: Node = None
+        self.membership: list[int] = []
+        self.root: bool = False
+        self.obj: float = float('nan')
 
     def build_root(self, indicators):
         if len(indicators) < 2:
-            raise ValueError("Must have at least 2 indicators (problem undefined)")
-        self.sol = [0]*len(indicators)
+            msg = "Must have at least 2 indicators (problem undefined)"
+            raise ValueError(msg)
+        self.sol = [0] * len(indicators)
         self.root = True
         return self
 
-    def from_starting(self, s , membership_matrix, objective):
+    def from_starting(self, s, membership_matrix, objective):
         self.sol = s
         self.membership = membership_matrix
         self.obj = objective
         return self
 
-    def branch(self, indicator:int, assignment:str):
+    def branch(self, indicator: int, assignment: str):
         if self.sol[indicator] != 0:
-            raise ValueError("Indicator already assigned")
+            msg = "Indicator already assigned"
+            raise ValueError(msg)
         n = self.__copy()
         n.depth += 1
         n.parent = self
@@ -52,29 +53,28 @@ class Node:
         elif assignment.startswith("co"):
             n.sol[indicator] = 1
         else:
-            raise ValueError("Unknown assignment : pick either clust or comp")
+            msg = "Unknown assignment : pick either clust or comp"
+            raise ValueError(msg)
         return n
 
-    def swap(self, indicator:int):
+    def swap(self, indicator: int):
         n = self.__copy()
         n.depth += 1
         self.parent = self
         if self.sol[indicator] == 1:
             n.sol[indicator] = -1
             return n
-        elif self.sol[indicator] == -1:
+        if self.sol[indicator] == -1:
             n.sol[indicator] = 1
             return n
-        else:
-            return None
+        return None
 
-    def discard(self, indicator:int):
+    def discard(self, indicator: int):
         n = self.__copy()
         n.depth += 1
         self.parent = self
         n.sol[indicator] = 0
         return n
-
 
     def __copy(self):
         n = Node()
@@ -94,11 +94,8 @@ class Node:
     def derive_comparison_mask(self):
         return np.asarray(self.sol) == 1
 
-    def is_leaf(self):
-        for a in self.sol:
-            if a == 0:
-                return False
-        return True
+    def is_leaf(self) -> bool:
+        return all(a != 0 for a in self.sol)
 
     def is_feasible(self) -> bool:
         for a in self.sol:
@@ -111,35 +108,38 @@ class Node:
     def print_obj(self, data):
         if self.root:
             return "obj: infeasible (root)"
-        elif not self.is_feasible():
+        if not self.is_feasible():
             return "obj: infeasible"
-        else:
-            return "obj: " + str(round(self.eval_obj(data), 2))
+        return "obj: " + str(round(self.eval_obj(data), 2))
 
-
-    def eval_obj(self, dataset:NDArray[np.float64]):
+    def eval_obj(self, dataset: NDArray[np.float64]):
         if self.membership is None:
             return float("nan")
         k = max(self.membership)
 
-        return  si_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
+        return si_obj(
+            dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership
+        )
 
     def eval_bi_obj(self, dataset):
         if self.membership is None:
             return float("nan"), float("nan")
         k = max(self.membership)
 
-        s1, s2 = _bi_obj(dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership)
+        s1, s2 = _bi_obj(
+            dataset, k, len(self.sol), self.derive_clustering_mask(), self.derive_comparison_mask(), self.membership
+        )
 
         return float(s1), float(s2)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(str(self.sol).replace(", ", ";") + " | " + str(self.obj))
-    def __repr__(self):
+
+    def __repr__(self) -> str:
         return str(str(self.sol).replace(", ", ";") + " | " + str(self.obj))
 
 
-#node_type.define(Node.class_type.instance_type)
+# node_type.define(Node.class_type.instance_type)
 
 
 @njit
@@ -156,9 +156,10 @@ def _bi_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
         for i in indices:
             for j in indices:
                 if i > j:
-                    s1 += comp_ratio *  np.sum(np.abs(X[i] - X[j]))
-                    s2 += (1 - clus_ratio)  * np.sum((X_[i] - X_[j]) ** 2)
+                    s1 += comp_ratio * np.sum(np.abs(X[i] - X[j]))
+                    s2 += (1 - clus_ratio) * np.sum((X_[i] - X_[j]) ** 2)
     return s1, s2
+
 
 @njit
 def si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
@@ -173,9 +174,9 @@ def si_obj(dataset, k, sol_len, cl_mask, co_mask, membership):
         for i in indices:
             for j in indices:
                 if i > j:
-                    #s += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
-                    s +=  comp_ratio *  np.sum(np.abs(X[i] - X[j]))
-                    #s -= (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
-                    s -= (1 - clus_ratio)  * np.sum((X_[i] - X_[j]) ** 2)
+                    # s += (2 / (n * (n - 1))) * comp_ratio * (1.0 / len(indices)) * np.sum(np.abs(X[i] - X[j]))
+                    s += comp_ratio * np.sum(np.abs(X[i] - X[j]))
+                    # s -= (1 - clus_ratio) * (1.0 / len(indices)) * np.sum((X_[i] - X_[j]) ** 2)
+                    s -= (1 - clus_ratio) * np.sum((X_[i] - X_[j]) ** 2)
 
     return s

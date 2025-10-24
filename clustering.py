@@ -1,8 +1,9 @@
-import numpy as np
-from numpy.typing import NDArray
-from numba import njit, jit, objmode, types, prange
 import math
-from numba.typed import List
+
+import numpy as np
+from numba import jit, njit, prange
+from numpy.typing import NDArray
+
 
 @njit
 def _random_unique_indices(n_samples: np.int64, k: np.int64):
@@ -10,8 +11,8 @@ def _random_unique_indices(n_samples: np.int64, k: np.int64):
     Return `k` distinct random integers in the range [0, n_samples).
     Uses a rejection loop because Numba lacks np.random.choice(replace=False).
     """
-    out = np.empty(k, dtype= np.int64)
-    chosen = np.zeros(n_samples, dtype= np.int64)       # 0/1 flags
+    out = np.empty(k, dtype=np.int64)
+    chosen = np.zeros(n_samples, dtype=np.int64)  # 0/1 flags
     filled = 0
     while filled < k:
         idx = np.random.randint(0, n_samples)
@@ -37,7 +38,6 @@ def kmeans(X, conv_criteria, k, max_iters):
 
     # ---------- main loop ---------------------------------------------
     for it in range(max_iters):
-
         # --- assignment step -----------------------------------------
         for i in range(n_samples):
             best_c = 0
@@ -63,7 +63,7 @@ def kmeans(X, conv_criteria, k, max_iters):
                 sums[c, f] += X[i, f]
 
         for j in range(k):
-            if counts[j] == 0:                       # empty cluster
+            if counts[j] == 0:  # empty cluster
                 rand_idx = np.random.randint(0, n_samples)
                 centroids[j, :] = X[rand_idx, :]
             else:
@@ -85,8 +85,11 @@ def kmeans(X, conv_criteria, k, max_iters):
         prev_centroids[:, :] = centroids[:, :]
     return labels
 
+
 @jit(nopython=True)
-def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int):
+def fcm_alex(
+    X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria: float, k: int, m: float, max_iters: int
+):
     n_samples = X.shape[0]
 
     U = np.random.rand(k, n_samples)
@@ -102,11 +105,11 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         U_old = U.copy()
         U_comp_old = U_comp.copy()
 
-        U_m = U ** m
-        U_comp_m = U_comp ** m
+        U_m = U**m
+        U_comp_m = U_comp**m
 
         centroids = (U_m @ X) / U_m.sum(axis=1)[:, None]
-        centroids_comp = (U_comp_m @ X_comp) / U_comp_m.sum(axis=1)[:, None] # TODO median instead
+        centroids_comp = (U_comp_m @ X_comp) / U_comp_m.sum(axis=1)[:, None]  # TODO median instead
 
         dist_2 = ((centroids[:, None, :] - X[None, :, :]) ** 2).sum(axis=2)
         dist_2 = np.fmax(dist_2, 1e-12)  # avoid /0
@@ -123,11 +126,11 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
                 U[j, i] = 1.0 / s1
                 U_comp[j, i] = 1.0 / s2
 
-#        for j in range(k):
-#            ratio = dist_2[j] / dist_2
-#            ratio_comp = dist_comp_2[j] / dist_comp_2
-#            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
-#            U_comp[j] = 1.0 / np.sum(ratio_comp ** exponent, axis=0)
+        #        for j in range(k):
+        #            ratio = dist_2[j] / dist_2
+        #            ratio_comp = dist_comp_2[j] / dist_comp_2
+        #            U[j] = 1.0 / np.sum(ratio ** exponent, axis=0)
+        #            U_comp[j] = 1.0 / np.sum(ratio_comp ** exponent, axis=0)
 
         if np.abs(U - U_old).max() <= conv_criteria and np.abs(U_comp - U_comp_old).max() <= conv_criteria:
             conv_check = True
@@ -138,11 +141,20 @@ def fcm_alex(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria 
         print("Warning: convergence")
     return arithmetic_mean.argmax(axis=0)
 
+
 @njit(parallel=True)
-def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria : float, k: int, m:float, max_iters:int, alpha=1.0):
+def fcmd_nico(
+    X: NDArray[np.float64],
+    X_comp: NDArray[np.float64],
+    conv_criteria: float,
+    k: int,
+    m: float,
+    max_iters: int,
+    alpha=1.0,
+):
     n_samples = X.shape[0]
 
-    centroids = np.empty((k, ), dtype=np.int64)
+    centroids = np.empty((k,), dtype=np.int64)
     init_idx = _random_unique_indices(n_samples, k)
     for j in range(k):
         centroids[j] = init_idx[j]
@@ -155,23 +167,22 @@ def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria
 
     conv_check = False
     for _ in range(max_iters):
-
         dists = np.zeros((k, n_samples), np.float64)
-        for j in range(k):# for each cluster
+        for j in range(k):  # for each cluster
             for i in prange(n_samples):
                 a = 0.0
                 for dim in range(X.shape[1]):
-                    a += (X[centroids[j], dim] - X[i, dim])**2 # good when small
-                a = a/X.shape[1]
+                    a += (X[centroids[j], dim] - X[i, dim]) ** 2  # good when small
+                a = a / X.shape[1]
                 b = 0.0
                 for dim in range(X_comp.shape[1]):
-                    b += np.abs(X_comp[centroids[j], dim] - X_comp[i, dim]) # good when big
-                b = b/X_comp.shape[1]
-                dists[j, i] = a - b #TODO add balance ?
+                    b += np.abs(X_comp[centroids[j], dim] - X_comp[i, dim])  # good when big
+                b = b / X_comp.shape[1]
+                dists[j, i] = a - b  # TODO add balance ?
 
         U_old = U.copy()
 
-        dists = 1 / (1 + np.exp(-alpha*dists))
+        dists = 1 / (1 + np.exp(-alpha * dists))
 
         for j in range(k):
             for i in prange(n_samples):
@@ -182,7 +193,7 @@ def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria
                     for l in range(k):
                         s1 += (dists[j, i] / dists[l, i]) ** exponent
                     U[j, i] = 1.0 / s1
-        #print("debug")
+        # print("debug")
         U /= U.sum(axis=0).reshape(1, U.shape[1])
         for cl, centroid in np.ndenumerate(centroids):
             for line in range(k):
@@ -195,8 +206,8 @@ def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria
 
         used = np.zeros(n_samples, dtype=np.bool)
         for j in range(k):
-            candidates = np.argsort(U[j])[:10+k].astype(np.int64)
-            D = np.zeros(10+k, np.float64)
+            candidates = np.argsort(U[j])[: 10 + k].astype(np.int64)
+            D = np.zeros(10 + k, np.float64)
             for c_idx, c in enumerate(candidates):
                 if used[c]:
                     continue
@@ -209,7 +220,7 @@ def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria
                     for dim in range(X_comp.shape[1]):
                         b += np.abs(X_comp[c, dim] - X_comp[i, dim])  # good when big
                     b = b / X_comp.shape[1]
-                    D[c_idx] += (1 / (1 + math.exp(b-a))) * U[j, i]**exponent
+                    D[c_idx] += (1 / (1 + math.exp(b - a))) * U[j, i] ** exponent
 
             potentials = candidates[np.argsort(D)]
             skip = 0
@@ -220,13 +231,8 @@ def fcmd_nico(X: NDArray[np.float64], X_comp: NDArray[np.float64], conv_criteria
             centroids[j] = potential
             used[potential] = True
 
-
         if np.abs(U - U_old).max() <= conv_criteria:
             conv_check = True
             break
 
     return np.argmax(U, axis=0)
-
-
-
-
