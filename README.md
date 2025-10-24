@@ -8,11 +8,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 #### Using custom datasets
-Sample data is provided in this repository. To use your own data you'll need to setup the graph in a local Neo4J database (using Neo4J desktop for exemple) in order to process the indicator extraction. We only tested with Neo4J 5.x on Mac OS and Linux. 
+Sample data are provided in this repository. To use your own data, you need to setup the graph in a local Neo4J database (using Neo4J desktop for example) in order to process indicator extraction. We only tested with Neo4J 5.x on Mac OS and Linux. 
 
 ## Indicators extraction
 
-To extract indicators from property graphs use the `collect_indicators.py` script. This script uses command line arguments to specify datasets and parameters:
+To extract indicators from property graphs, use the `collect_indicators.py` script. This script uses command line arguments to specify the Neo4J database and parameters:
  - `-r`: the number of runs
  - `-dh`: the threshold for acceptable variance (high)
  - `-dl`: the threshold for acceptable variance (low)
@@ -27,7 +27,7 @@ To extract indicators from property graphs use the `collect_indicators.py` scrip
 
 ## Solving the Partiton/Clustering problem
 
-To run the clustering and indicator partition problem use the main.py script. This script uses command line arguments to specify datasets and parameters:
+To run the clustering and indicator partition heuristics, use the `main.py`  script. This script uses command line arguments to specify datasets and parameters:
  - `--k`: the number of clusters desired
  - `--steps`: To limit the local search steps
  - `--method`: ls : local search, exp : full tree enumeration, sls: 'simple' start local search
