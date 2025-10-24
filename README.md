@@ -1,7 +1,7 @@
-# Extracting node comparison insights for the interactiveexploration of property graphs
+# Extracting node comparison insights for the interactive exploration of property graphs
 
 ### Requirements
-This code has been tested with Python 3.12, and Neo4J 5.x, to install the required packages we recommend the use of a pythin virtual environement.
+This code has been tested with Python 3.12, and Neo4J 5.x, to install the required packages we recommend the use of a python virtual environement.
 ```
 python -m venv venv
 source venv/bin/activate
