@@ -1,0 +1,11 @@
+{
+  "name": "airports",
+  "labels": ["Airport", "Country", "City"],
+  "home": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
+  "number_of_node": 52944,
+  "number_of_edge": 136948,
+  "avg_properties_node": 3.99,
+  "avg_properties_edge": 0.86,
+  "username": "neo4j",
+  "password": "airports"
+}

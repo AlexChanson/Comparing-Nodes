@@ -1,0 +1,11 @@
+{
+  "name": "recommendations",
+  "labels": ["Actor", "Movie", "Director"],
+  "home": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
+  "number_of_node": 28863,
+  "number_of_edge": 166261,
+  "avg_properties_node": 1.6,
+  "avg_properties_edge": 1.2,
+  "username": "neo4j",
+  "password": "recommendations"
+}
