@@ -1,6 +1,7 @@
+import argparse
 from pathlib import Path
 
-from neo4j import GraphDatabase, basic_auth
+from neo4j import GraphDatabase, basic_auth, Driver
 from typing import Any
 
 import pandas as pd
@@ -59,7 +60,7 @@ class Neo4jConnector:
             **driver_kwargs
         )
 
-    def getDriver(self) -> GraphDatabase.driver:
+    def get_driver(self) -> Driver:
         return self._driver
 
     def close(self) -> None:
@@ -981,7 +982,7 @@ def main(pushdown,null_ratio,nbRuns):
 
                     # get context
                     # get * relationships properties for label
-                    dfm2m = aggregate_m2m_properties_for_label(db.getDriver(), label, agg="sum", include_relationship_properties=True,only_reltypes=manyToMany,suffixes=suffixes_for_removal,to_keep=to_keep)
+                    dfm2m = aggregate_m2m_properties_for_label(db.get_driver(), label, agg="sum", include_relationship_properties=True, only_reltypes=manyToMany, suffixes=suffixes_for_removal, to_keep=to_keep)
                     #print('* props:', time.time() - start_time)
 
                     # get 1 relationships properties for label (and save those to csv)
@@ -997,7 +998,7 @@ def main(pushdown,null_ratio,nbRuns):
                     dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
                     # get in degrees of label
-                    dfdeg = in_degree_by_relationship_type(db.getDriver(),label)
+                    dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
                     #print('degrees:', time.time() - start_time)
 
                     # then outer join with dftemp
@@ -1039,7 +1040,7 @@ def main(pushdown,null_ratio,nbRuns):
                         processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
 
                     # contextualization
-                    dist = schema_hops_from_label(db.getDriver(), label , include_relationship_types=True, directed=False)
+                    dist = schema_hops_from_label(db.get_driver(), label, include_relationship_types=True, directed=False)
                     keep = weight_df_by_schema_hops(keep, dist)
 
                     export(keep,report,processedIndicators,processingReport)
@@ -1093,7 +1094,12 @@ def testPushdown(nbRuns):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-p', '--pushdown', action='store_true')
+    parser.add_argument('-n', '--null-ratio', default=0.1, type=float)
+    parser.add_argument('-r', '--runs', default=3, type=int)
+    args = parser.parse_args()
+
     #testPushdown(1)
     #main(False, 0.8, 3)
-    main(True, 0.1, 3)
-
+    main(args.pushdown, args.null_ratio, args.runs)
