@@ -1,11 +1,12 @@
 import pandas as pd
 
+
 def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:
     """
     Compute, for every node with the given label, the in-degree grouped by relationship type.
     Returns a pandas DataFrame with:
       - first column: nodeId (Neo4j internal id)
-      - subsequent columns: one per relationship type, values are counts (integers)
+      - subsequent columns: one per relationship type, values are counts (integers).
 
     Parameters
     ----------
@@ -19,6 +20,7 @@ def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:
     - Only incoming relationships are counted: ()-[r]->(n:Label).
     - Nodes with no incoming relationships are included with zeros across all relationship columns.
     - Relationship types become column names.
+
     """
     # Safely backtick-escape the label (handles spaces/special chars)
     label_bt = f"`{label}`"
@@ -48,8 +50,7 @@ def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:
     if counts_df.empty:
         # No incoming relationships at all; return zeros-only columns (just nodeId)
         df = nodes_df.copy()
-        df = df.astype({"nodeId": "Int64"})
-        return df
+        return df.astype({"nodeId": "Int64"})
 
     # Pivot so each relationship type is its own column
     pivot = counts_df.pivot_table(
@@ -65,7 +66,6 @@ def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:
             df[col] = df[col].astype(int)
 
     # Sort columns: nodeId first, then relationship types (alphabetical)
-    cols = ["nodeId"] + sorted([c for c in df.columns if c != "nodeId"])
-    df = df[cols].astype({"nodeId": "Int64"})
+    cols = ["nodeId", *sorted([c for c in df.columns if c != "nodeId"])]
+    return df[cols].astype({"nodeId": "Int64"})
 
-    return df

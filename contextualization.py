@@ -1,6 +1,8 @@
-from typing import Dict, List, Set, Tuple, Optional
 from collections import deque
+from typing import Dict, List, Optional, Set, Tuple
+
 from neo4j import GraphDatabase
+
 
 def schema_hops_from_label(
     driver,
@@ -39,9 +41,12 @@ def schema_hops_from_label(
           "relationships": { "<REL_TYPE>": int|None, ... } (optional) # hops via rel-type as a node
         }
         Distances are hop counts; unreachable -> None. `labels[start_label]` is 0.
+
     """
+
     def _normalize(s: Optional[str]) -> Optional[str]:
-        if s is None: return None
+        if s is None:
+            return None
         # strip accidental backticks/colons (can appear in some meta outputs)
         return s.replace('`', '').replace(':', '')
 
@@ -61,7 +66,7 @@ def schema_hops_from_label(
                 UNWIND lb AS B
                 RETURN A AS a, B AS b, t AS t
             """)
-            edges = [( _normalize(r["a"]), _normalize(r["b"]), _normalize(r["t"]) ) for r in data_rows]
+            edges = [(_normalize(r["a"]), _normalize(r["b"]), _normalize(r["t"])) for r in data_rows]
         else:
             # Expand APOC schema into (a,b,t) triples
             edges: List[Tuple[str, str, str]] = []
@@ -77,8 +82,10 @@ def schema_hops_from_label(
     # --- 2) Build label set + adjacency ---
     label_set: Set[str] = set()
     for a, b, _ in edges:
-        if a: label_set.add(a)
-        if b: label_set.add(b)
+        if a:
+            label_set.add(a)
+        if b:
+            label_set.add(b)
 
     # Ensure the start label is represented even if isolated
     start_label = _normalize(start_label)
@@ -95,7 +102,7 @@ def schema_hops_from_label(
 
     # --- 3) BFS from start_label over labels ---
     def bfs(start: str) -> Dict[str, Optional[int]]:
-        dist: Dict[str, Optional[int]] = {lbl: None for lbl in adj.keys()}
+        dist: Dict[str, Optional[int]] = dict.fromkeys(adj.keys())
         if start not in adj:
             # Start label not present in schema graph; only itself at distance 0
             dist[start] = 0
@@ -121,8 +128,10 @@ def schema_hops_from_label(
             if not t:
                 continue
             s = endpoints.setdefault(t, set())
-            if a: s.add(a)
-            if b: s.add(b)
+            if a:
+                s.add(a)
+            if b:
+                s.add(b)
 
         for t, eps in endpoints.items():
             # Distance to rel-type is 1 + min distance to any endpoint label
@@ -131,7 +140,7 @@ def schema_hops_from_label(
                 d = label_dist.get(lbl)
                 if d is not None:
                     best = d if best is None else min(best, d)
-            reltype_dist[t] = (None if best is None else best + 1)
+            reltype_dist[t] = None if best is None else best + 1
 
     result = {"labels": label_dist}
     if include_relationship_types:
@@ -139,9 +148,12 @@ def schema_hops_from_label(
     return result
 
 
+from collections.abc import Iterable
+from typing import Dict, Optional
+
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
-from typing import Dict, Optional, Iterable
+
 
 def weight_df_by_schema_hops(
     df: pd.DataFrame,
@@ -181,6 +193,7 @@ def weight_df_by_schema_hops(
     pd.DataFrame
         New dataframe with identical structure (same columns, same row count),
         but eligible columns scaled by 1/(h+1). Non-numeric columns are left as-is.
+
     """
     columns_to_skip = set(columns_to_skip or [])
 
@@ -224,10 +237,8 @@ def weight_df_by_schema_hops(
     return out
 
 
-
 if __name__ == "__main__":
-
-    driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j","airports"))
+    driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "airports"))
 
     dist = schema_hops_from_label(driver, "Airport", include_relationship_types=True, directed=False)
     print(dist)

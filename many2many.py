@@ -1,19 +1,23 @@
 import re
-from typing import Iterable, List, Dict, Optional, Literal
-from neo4j import Driver, Session
+from collections.abc import Iterable
+from typing import Dict, List, Literal, Optional
+
 import pandas as pd
+from neo4j import Driver, Session
 
 AggFn = Literal["sum", "avg", "min", "max", "count"]
+
 
 def _backtick(label: str) -> str:
     # Safely quote labels that may contain special chars/spaces
     return f"`{label.replace('`', '``')}`"
 
+
 def find_many_to_many_reltypes(session: Session, label: str) -> List[str]:
     """
     Keep a relationship type if there exists at least one node n:L
     with more than one outgoing relationship of that type.
-    (Condition (ii) about target in-degree is dropped.)
+    (Condition (ii) about target in-degree is dropped.).
     """
     lbl = _backtick(label)
     q = f"""
@@ -26,7 +30,6 @@ def find_many_to_many_reltypes(session: Session, label: str) -> List[str]:
     """
     res = session.run(q)
     return [r["reltype"] for r in res]
-
 
 
 def find_only_many_to_many_reltypes(session: Session, label: str) -> List[str]:
@@ -73,22 +76,22 @@ def _aggregate_neighbors_for_reltype(
     agg: AggFn = "sum",
     include_rels: bool = True,
     suffixes: Optional[Iterable[str]] = None,
-    to_keep=[]
+    to_keep=[],
 ) -> Dict[int, Dict[str, float]]:
     """
     For a given label and relationship type, aggregate numeric properties from:
       1) neighbor nodes' properties
       2) relationship properties (if include_rels=True)
-    Returns: { id(n): { column_name: value, ... }, ... }
+    Returns: { id(n): { column_name: value, ... }, ... }.
     """
     lbl = _backtick(label)
-    props=to_keep
+    props = to_keep
 
     # Map Python agg -> Cypher function
     agg_func = {"sum": "sum", "avg": "avg", "min": "min", "max": "max", "count": "count"}[agg]
-    #suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
+    # suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
     suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
-    if to_keep==[]:
+    if to_keep == []:
         # --- Neighbor node properties ---
         q_neighbors = f"""
         MATCH (n:{lbl})-[r]-(m)
@@ -132,7 +135,7 @@ def _aggregate_neighbors_for_reltype(
 
     # --- Relationship properties ---
     if include_rels:
-        if to_keep== []:
+        if to_keep == []:
             q_rels = f"""
             MATCH (n:{lbl})-[r]-()
             WHERE type(r) = $reltype
@@ -175,7 +178,7 @@ def aggregate_m2m_properties_for_label(
     include_relationship_properties: bool = True,
     only_reltypes: Optional[Iterable[str]] = None,
     suffixes: Optional[Iterable[str]] = None,
-    to_keep = None
+    to_keep=None,
 ) -> pd.DataFrame:
     """
     High-level function:
@@ -194,22 +197,28 @@ def aggregate_m2m_properties_for_label(
 
     Returns:
         pandas.DataFrame with columns: ['node_id', <aggregated columns>...]
+
     """
     with driver.session() as session:
         reltypes = list(only_reltypes) if only_reltypes else find_many_to_many_reltypes(session, label)
-        #print(reltypes)
+        # print(reltypes)
 
         # If no M2M reltypes, still return DF with node ids and no extra cols
         if not reltypes:
             ids = session.run(f"MATCH (n:{_backtick(label)}) RETURN id(n) AS nid").data()
-            df = pd.DataFrame({"node_id": [r["nid"] for r in ids]})
-            return df
+            return pd.DataFrame({"node_id": [r["nid"] for r in ids]})
 
         per_node_maps: Dict[int, Dict[str, float]] = {}
 
         for rt in reltypes:
             partial = _aggregate_neighbors_for_reltype(
-                session, label, rt, agg=agg, include_rels=include_relationship_properties, suffixes=suffixes, to_keep=to_keep
+                session,
+                label,
+                rt,
+                agg=agg,
+                include_rels=include_relationship_properties,
+                suffixes=suffixes,
+                to_keep=to_keep,
             )
             # Merge maps
             for nid, cols in partial.items():
@@ -228,11 +237,9 @@ def aggregate_m2m_properties_for_label(
             row.update(cols)
             rows.append(row)
 
-        df = pd.DataFrame(rows).sort_values("node_id").reset_index(drop=True)
-
         # For sum/avg/min/max it's often practical to fill NaN with 0 (sum) or leave NaN.
         # We'll leave NaN so you can distinguish “no data” vs “zero”.
-        return df
+        return pd.DataFrame(rows).sort_values("node_id").reset_index(drop=True)
 
 
 # -------- Example usage (you already have connection code) --------
@@ -247,4 +254,3 @@ if __name__ == "__main__":
 
         print(df.head())
     """
-    pass

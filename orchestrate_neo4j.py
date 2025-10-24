@@ -2,63 +2,61 @@
 import argparse
 import os
 import platform
+
+# NEW imports
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Callable
+from typing import Callable, List, Optional
 
+import psutil
 from neo4j import GraphDatabase, basic_auth
 
-# NEW imports
-import re
-import psutil
 
 @dataclass
 class DbSpec:
     name: str
-    home: str                 # Path to the DBMS home that contains bin/neo4j
-    bolt_uri: str             # e.g., bolt://localhost:7687
+    home: str  # Path to the DBMS home that contains bin/neo4j
+    bolt_uri: str  # e.g., bolt://localhost:7687
     user: str = "neo4j"
     password: str = "neo4j"
     start_timeout: int = 120  # seconds to wait for startup
-    stop_timeout: int = 60    # seconds to wait for shutdown
+    stop_timeout: int = 60  # seconds to wait for shutdown
+
 
 def _neo4j_executable(home: str) -> List[str]:
     is_windows = platform.system().lower().startswith("win")
     exe = os.path.join(home, "bin", "neo4j.bat" if is_windows else "neo4j")
     if not os.path.exists(exe):
-        raise FileNotFoundError(f"Neo4j launcher not found: {exe}")
+        msg = f"Neo4j launcher not found: {exe}"
+        raise FileNotFoundError(msg)
     return [exe]
+
 
 def _run(cmd: List[str], env: Optional[dict] = None, check: bool = True) -> subprocess.CompletedProcess:
     # Use a shell-less invocation; capture output for diagnostics
     try:
-        cp = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=env,
-            text=True,
-            check=check
-        )
-        return cp
+        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, check=check)
     except subprocess.CalledProcessError as e:
         print(e.stdout, file=sys.stderr)
         raise
+
 
 def start_dbms(db: DbSpec) -> None:
     print(f"\n=== Starting DBMS '{db.name}' from {db.home} ===")
     exe = _neo4j_executable(db.home)
     # 'neo4j start' returns immediately; server continues in background.
-    out = _run(exe + ["start"]).stdout
+    out = _run([*exe, "start"]).stdout
     print(out.strip())
+
 
 def stop_dbms(db: DbSpec) -> None:
     print(f"\n=== Stopping DBMS '{db.name}' ===")
     exe = _neo4j_executable(db.home)
     try:
-        out = _run(exe + ["stop"]).stdout
+        out = _run([*exe, "stop"]).stdout
         print(out.strip())
     except subprocess.CalledProcessError as e:
         # If it's already stopped, ignore; else re-raise
@@ -67,6 +65,7 @@ def stop_dbms(db: DbSpec) -> None:
             print("DBMS was not running.")
         else:
             raise
+
 
 def wait_for_bolt(bolt_uri: str, user: str, password: str, timeout_s: int) -> None:
     print(f"Waiting for Bolt at {bolt_uri} (timeout {timeout_s}s)...")
@@ -83,7 +82,9 @@ def wait_for_bolt(bolt_uri: str, user: str, password: str, timeout_s: int) -> No
         except Exception as e:
             last_err = e
             time.sleep(1.0)
-    raise TimeoutError(f"Bolt did not become available within {timeout_s}s. Last error: {last_err}")
+    msg = f"Bolt did not become available within {timeout_s}s. Last error: {last_err}"
+    raise TimeoutError(msg)
+
 
 def wait_for_bolt_down(bolt_uri: str, timeout_s: int) -> None:
     print(f"Waiting for Bolt to go down at {bolt_uri} (timeout {timeout_s}s)...")
@@ -91,7 +92,7 @@ def wait_for_bolt_down(bolt_uri: str, timeout_s: int) -> None:
     while time.time() < deadline:
         try:
             # If connection succeeds, it's still up
-            driver = GraphDatabase.driver(bolt_uri, auth=basic_auth("neo4j","neo4j"))
+            driver = GraphDatabase.driver(bolt_uri, auth=basic_auth("neo4j", "neo4j"))
             with driver.session(database=None) as s:
                 s.run("RETURN 1").consume()
             driver.close()
@@ -99,7 +100,9 @@ def wait_for_bolt_down(bolt_uri: str, timeout_s: int) -> None:
         except Exception:
             print("Bolt is down.")
             return
-    raise TimeoutError("Server did not shut down in time.")
+    msg = "Server did not shut down in time."
+    raise TimeoutError(msg)
+
 
 def run_tests(db: DbSpec, test_fn: Callable[[GraphDatabase], None]) -> None:
     print(f"\n--- Running tests on '{db.name}' ---")
@@ -108,6 +111,7 @@ def run_tests(db: DbSpec, test_fn: Callable[[GraphDatabase], None]) -> None:
         test_fn(driver)
     finally:
         driver.close()
+
 
 def cycle_databases(dbs: List[DbSpec], test_fn: Callable[[GraphDatabase], None]) -> None:
     for i, db in enumerate(dbs, 1):
@@ -124,6 +128,7 @@ def cycle_databases(dbs: List[DbSpec], test_fn: Callable[[GraphDatabase], None])
             except TimeoutError as e:
                 print(f"Warning: {e}", file=sys.stderr)
 
+
 # --- Example test function you can customize ---
 def example_tests(driver: GraphDatabase) -> None:
     # 1) Simple smoke check
@@ -133,6 +138,7 @@ def example_tests(driver: GraphDatabase) -> None:
     # 2) Add your real test logic here, e.g. run migrations, load fixtures, run assertions, etc.
     # with driver.session(database='neo4j') as s:
     #     s.run("MATCH (n) RETURN count(n) AS c").single()
+
 
 def parse_db_arg(db_arg: str) -> DbSpec:
     """
@@ -148,7 +154,8 @@ def parse_db_arg(db_arg: str) -> DbSpec:
     required = ["name", "home", "bolt"]
     for r in required:
         if r not in kv:
-            raise ValueError(f"Missing '{r}' in --db spec: {db_arg}")
+            msg = f"Missing '{r}' in --db spec: {db_arg}"
+            raise ValueError(msg)
     return DbSpec(
         name=kv["name"],
         home=kv["home"],
@@ -158,8 +165,6 @@ def parse_db_arg(db_arg: str) -> DbSpec:
         start_timeout=int(kv.get("start_timeout", "120")),
         stop_timeout=int(kv.get("stop_timeout", "60")),
     )
-
-
 
 
 # --- NEW: discover the running DBMS home from processes ---
@@ -186,19 +191,22 @@ def detect_running_dbms_home() -> Optional[str]:
             continue
     return None
 
+
 # --- NEW: wait for a DBMS (by home) to fully stop using 'neo4j status' ---
 def wait_until_stopped_by_home(home: str, timeout_s: int = 60) -> None:
     exe = _neo4j_executable(home)
     print(f"Waiting for DBMS at {home} to stop (timeout {timeout_s}s)...")
     deadline = time.time() + timeout_s
     while time.time() < deadline:
-        cp = subprocess.run(exe + ["status"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+        cp = subprocess.run([*exe, "status"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
         out = (cp.stdout or "").lower()
         if any(w in out for w in ["not running", "inactive", "stopped"]):
             print("Server stopped.")
             return
         time.sleep(1)
-    raise TimeoutError("Server did not shut down in time.")
+    msg = "Server did not shut down in time."
+    raise TimeoutError(msg)
+
 
 # --- NEW: stop *whatever* DBMS is currently running (no DbSpec needed) ---
 def stop_current_dbms(stop_timeout: int = 60) -> bool:
@@ -214,7 +222,7 @@ def stop_current_dbms(stop_timeout: int = 60) -> bool:
     print(f"Detected running DBMS at: {home}")
     exe = _neo4j_executable(home)
     try:
-        out = _run(exe + ["stop"]).stdout
+        out = _run([*exe, "stop"]).stdout
         print(out.strip())
     except subprocess.CalledProcessError as e:
         msg = (e.stdout or "").lower()
@@ -232,19 +240,15 @@ def stop_current_dbms(stop_timeout: int = 60) -> bool:
     return True
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Start/stop Neo4j Desktop DBMSs in sequence and run tests.")
     ap.add_argument(
         "--db",
         action="append",
         required=True,
-        help="DB spec: name=...,home=...,bolt=...,user=...,pass=...,start_timeout=...,stop_timeout=..."
+        help="DB spec: name=...,home=...,bolt=...,user=...,pass=...,start_timeout=...,stop_timeout=...",
     )
-    ap.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Parse and print the plan without executing."
-    )
+    ap.add_argument("--dry-run", action="store_true", help="Parse and print the plan without executing.")
     args = ap.parse_args()
 
     dbs = [parse_db_arg(x) for x in args.db]
@@ -257,6 +261,7 @@ def main():
         return
 
     cycle_databases(dbs, example_tests)
+
 
 if __name__ == "__main__":
     main()

@@ -1,40 +1,45 @@
-from datasets import *
+import argparse
+import heapq
+import time
+from copy import copy
+from itertools import count
+
+import numpy as np
 from b_and_b import *
 from clustering import *
-from utility import *
-from copy import copy
-import numpy as np
+from datasets import *
 from numpy.typing import NDArray
-import heapq
-from itertools import count
-import argparse
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
-import time
 from sklearn.metrics import silhouette_score
+from utility import *
 
-from numba import njit
-#from PrettyPrint import PrettyPrintTree
+# from PrettyPrint import PrettyPrintTree
 
 
-#@njit()
-def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method="kmeans", max_iters=100, conv_criteria=10e-4, m = 2.5):
+# @njit()
+def solve_node(
+    p_sol: list[int], dataset: NDArray[np.float64], k: int, method="kmeans", max_iters=100, conv_criteria=10e-4, m=2.5
+):
     X = dataset[:, derive_clustering_mask(p_sol)]  # mask attributes used for comparison or discarded
     X_comp = dataset[:, derive_comparison_mask(p_sol)]
     n_samples, _ = X.shape
     membership = None
 
-    #idiot proofing
+    # idiot proofing
     if k <= 0:
-        raise ValueError("k must be a positive integer")
+        msg = "k must be a positive integer"
+        raise ValueError(msg)
     if X.ndim != 2:
-        raise ValueError("X must be a 2‑D array (n_samples, n_features)")
+        msg = "X must be a 2‑D array (n_samples, n_features)"
+        raise ValueError(msg)
     if k > n_samples:
-        raise ValueError("k cannot exceed the number of samples")
+        msg = "k cannot exceed the number of samples"
+        raise ValueError(msg)
 
     if method == "kmeans":
         membership = kmeans(X, conv_criteria, k, max_iters)
-    elif method == "fcm": #TODO should fuzzy parameter be thr same in both spaces ?
+    elif method == "fcm":  # TODO should fuzzy parameter be thr same in both spaces ?
         membership = fcm_alex(X, X_comp, conv_criteria, k, m, max_iters)
     elif method == "fcm2":
         membership = fcmd_nico(X, X_comp, conv_criteria, k, m, max_iters)
@@ -44,12 +49,13 @@ def solve_node(p_sol : list[int], dataset : NDArray[np.float64], k : int, method
     return membership
 
 
-def signature(l : list[int]):
+def signature(l: list[int]):
     return "".join(map(str, l))
 
+
 # you have to pass node_map = dict() when calling
-#@jit()
-def bnb(node : Node, node_map : dict[Node], max_depth, **params):
+# @jit()
+def bnb(node: Node, node_map: dict[Node], max_depth, **params) -> None:
     if not (node.is_leaf() or node.depth == max_depth):
         for idx, a in enumerate(node.mask()):
             if a == 0:
@@ -62,7 +68,7 @@ def bnb(node : Node, node_map : dict[Node], max_depth, **params):
                     to_branch.append(node.branch(idx, "cluster"))
                 else:
                     pass
-                    #node.children.append(node_map[signature(cls)])
+                    # node.children.append(node_map[signature(cls)])
 
                 cmp = copy(node.sol)
                 cmp[idx] = 1
@@ -70,26 +76,27 @@ def bnb(node : Node, node_map : dict[Node], max_depth, **params):
                     to_branch.append(node.branch(idx, "comparison"))
                 else:
                     pass
-                    #node.children.append(node_map[signature(cmp)])
+                    # node.children.append(node_map[signature(cmp)])
 
                 # Branch
                 for child in to_branch:
                     if not child.is_feasible():
                         child.membership = None
                         child.obj = float("-inf")
-                        if not child.is_leaf():# skip unfeasible leaf
-                            node_map[child.signature()] = child  #Save node in the hash map
+                        if not child.is_leaf():  # skip unfeasible leaf
+                            node_map[child.signature()] = child  # Save node in the hash map
                             bnb(child, node_map, max_depth, **params)
                         else:
-                            pass #node.prune_child(child)
+                            pass  # node.prune_child(child)
                     else:
                         child.membership = solve_node(child.mask(), data, k, **params)
                         child.obj = child.eval_obj(data)
-                        node_map[child.signature()] = child #Save node in the hash map
+                        node_map[child.signature()] = child  # Save node in the hash map
                         bnb(child, node_map, max_depth, **params)
 
-#@jit()
-def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans"):
+
+# @jit()
+def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans") -> None:
     # Min-heap; we invert the priority for desired behavior.
     # Order is mostly irrelevant, but we still need a deterministic, stable order.
     # Priority schema:
@@ -97,7 +104,7 @@ def bnb_iterative(root: "Node", node_map: dict, max_depth=10, method="kmeans"):
     heap = []
     tie = count()
 
-    def push(node: "Node"):
+    def push(node: "Node") -> None:
         # base condition: do not push if node is leaf or depth limit reached
         if node.is_leaf() or node.depth == max_depth:
             return
@@ -169,12 +176,12 @@ def heur_exp(data, features, k, mtd, max_depth):
     nodes: dict[Node] = {}
     bnb_iterative(root, nodes, method=mtd, max_depth=max_depth)
 
-    #pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data), orientation=PrettyPrintTree.Horizontal)
-    #pt(root)
+    # pt = PrettyPrintTree(lambda x: x.children, lambda x: str(x.sol).replace(" ", "") + ' ' + x.print_obj(data), orientation=PrettyPrintTree.Horizontal)
+    # pt(root)
 
     sol = best_from_tree(nodes)
 
-    #if DISPLAY:
+    # if DISPLAY:
     #    from matplotlib import pyplot as plt
     #    sols, x, y = bi_obj_check(root, data)
     #    plt.scatter(x, y)
@@ -186,8 +193,8 @@ def heur_exp(data, features, k, mtd, max_depth):
     print("[Heuristic] Exponential finished with solution:", sol)
     return sol
 
-def heur_express(data, features, k, mtd):
 
+def heur_express(data, features, k, mtd):
     W = construct_W.construct_W(data, neighbor_mode='knn', k=5)
     lap_scores = lap_score.lap_score(data, W=W)
     laplacians = np.asarray(list(lap_scores)).reshape(len(lap_scores), 1)
@@ -195,29 +202,34 @@ def heur_express(data, features, k, mtd):
     c1_mean = lap_scores[m.astype(bool)].mean()
     c0_mean = lap_scores[~m.astype(bool)].mean()
     solution = np.ones_like(features)
-    #c0 has lowest average laplacian
+    # c0 has lowest average laplacian
     if c1_mean > c0_mean:
         solution[~m.astype(bool)] = -1
     else:
         solution[m.astype(bool)] = -1
 
-    h_sol = list(map(int,solution.tolist()))
+    h_sol = list(map(int, solution.tolist()))
     membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
-    n = Node().from_starting(h_sol, membership,
-                             si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
-                                    membership))
+    n = Node().from_starting(
+        h_sol,
+        membership,
+        si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol), membership),
+    )
     print("[Init] Smart-select finished with solution:", n)
     return n
 
-def heur_random(data, features, k, mtd):
 
+def heur_random(data, features, k, mtd):
     h_sol = random_feasible(features)
     membership = solve_node(h_sol, data, k, method=mtd, max_iters=100)
-    n = Node().from_starting(h_sol, membership,
-                             si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol),
-                                    membership))
+    n = Node().from_starting(
+        h_sol,
+        membership,
+        si_obj(data, k, len(h_sol), derive_clustering_mask(h_sol), derive_comparison_mask(h_sol), membership),
+    )
     print("[Init] Random finished with solution:", n)
     return n
+
 
 def heur_local_search(data, features, k, mtd, start, n_steps=5):
     n = start
@@ -259,20 +271,24 @@ def heur_local_search(data, features, k, mtd, start, n_steps=5):
             break
         n = best_node
         n_steps -= 1
-    #print("[Heuristic] Local Search finished with solution:", n)
+    # print("[Heuristic] Local Search finished with solution:", n)
     return n
+
 
 # Solution structure : vector of len |indicators| : 0 unused (default for partial solution / 1 used for comparison / - 1 used for clustering
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description="Please specify dataset name"
-    )
+    parser = argparse.ArgumentParser(description="Please specify dataset name")
 
     parser.add_argument("-ds", "--dataset", default="actors", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
-    parser.add_argument("-m", "--method", default="sls", help="Method to use (ls : local search, exp : full tree enumeration, sls: 'smart' start local search)")
+    parser.add_argument(
+        "-m",
+        "--method",
+        default="sls",
+        help="Method to use (ls : local search, exp : full tree enumeration, sls: 'smart' start local search)",
+    )
     parser.add_argument("-p", "--path", default="", help="Path to custom dataset")
     parser.add_argument("-d", "--delimiter", default=",", help="Delimiter for custom dataset")
     args = parser.parse_args()
@@ -329,7 +345,7 @@ if __name__ == '__main__':
         sol_patrick = heur_express(data, features, k, mtd=mtd)
         sol_patrick = heur_local_search(data, features, k, mtd=mtd, start=sol_patrick, n_steps=ls_steps)
         print("[best solution]:", sol_patrick)
-        print("[Silhouette]", silhouette_score(data[:,sol_patrick.derive_clustering_mask()], sol_patrick.membership))
+        print("[Silhouette]", silhouette_score(data[:, sol_patrick.derive_clustering_mask()], sol_patrick.membership))
 
     elif args.method == "lp":
         sol_patrick = heur_express(data, features, k, mtd=mtd)
@@ -349,5 +365,3 @@ if __name__ == '__main__':
     res_w = et_w - st_w
     print('[CPU time]', res, 'seconds')
     print('[Wall time]', res_w, 'seconds')
-
-

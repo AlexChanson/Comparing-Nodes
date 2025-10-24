@@ -17,13 +17,15 @@ Notes:
 Usage:
   python process_df.py --input data.csv --output processed.csv --report report.csv \
       --null-thresh 0.3 --distinct-low 0.02 --distinct-high 0.98
+
 """
 
 import argparse
 import sys
-from typing import Tuple, List, Dict, Any
-import pandas as pd
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
+import pandas as pd
 
 
 def percentile_scale(s: pd.Series) -> pd.Series:
@@ -46,7 +48,7 @@ def percentile_scale(s: pd.Series) -> pd.Series:
         return s_out
 
     ranks = non_null.rank(method="average")  # 1..n
-    scaled = (ranks - 1) / (n - 1)           # 0..1
+    scaled = (ranks - 1) / (n - 1)  # 0..1
     s_out.loc[non_null.index] = scaled
     return s_out
 
@@ -57,7 +59,7 @@ def process_dataframe(
     distinct_low: float,
     distinct_high: float,
     allow_non_numeric: bool = False,
-    pushdown: bool = False
+    pushdown: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Process df as specified. Returns (processed_df, report_df).
@@ -71,7 +73,8 @@ def process_dataframe(
       - dtype_before
     """
     if df.shape[1] < 2:
-        raise ValueError("DataFrame must have at least two columns (first preserved, others processed).")
+        msg = "DataFrame must have at least two columns (first preserved, others processed)."
+        raise ValueError(msg)
 
     first_col = df.columns[0]
     keep_df = df[[first_col]].copy()
@@ -80,23 +83,19 @@ def process_dataframe(
 
     total_rows = len(df)
 
-    for col in df.columns[1:]: # was [1:]
+    for col in df.columns[1:]:  # was [1:]
         s_orig = df[col]
         dtype_before = str(s_orig.dtype)
-
 
         # Compute ratios
         null_ratio = s_orig.isna().mean() if total_rows > 0 else np.nan
 
         non_null = s_orig.dropna()
         non_null_count = len(non_null)
-        if non_null_count == 0:
-            distinct_ratio = np.nan
-        else:
-            distinct_ratio = non_null.nunique(dropna=True) / non_null_count
+        distinct_ratio = np.nan if non_null_count == 0 else non_null.nunique(dropna=True) / non_null_count
 
         # Rule (i): null ratio threshold
-        #if pd.notna(null_ratio) and null_ratio > null_thresh:
+        # if pd.notna(null_ratio) and null_ratio > null_thresh:
         #    report_rows.append({
         #        "column": col,
         #        "action": "dropped",
@@ -107,8 +106,7 @@ def process_dataframe(
         #    })
         #    continue
 
-
-            # Type handling
+        # Type handling
         s_for_scale = s_orig
         is_numeric = pd.api.types.is_numeric_dtype(s_for_scale)
 
@@ -119,70 +117,79 @@ def process_dataframe(
                 s_for_scale = coerced
                 is_numeric = True
             else:
-                report_rows.append({
-                    "column": col,
-                    "action": "dropped",
-                    "reason": "non_numeric",
-                    "null_ratio": null_ratio,
-                    "distinct_ratio": distinct_ratio,
-                    "dtype_before": dtype_before,
-                })
+                report_rows.append(
+                    {
+                        "column": col,
+                        "action": "dropped",
+                        "reason": "non_numeric",
+                        "null_ratio": null_ratio,
+                        "distinct_ratio": distinct_ratio,
+                        "dtype_before": dtype_before,
+                    }
+                )
                 continue
 
         # Rule (ii): distinct ratio thresholds (over non-null entries)
         # If non_null_count == 0 -> drop (degenerate)
         if non_null_count == 0:
-            report_rows.append({
-                "column": col,
-                "action": "dropped",
-                "reason": "all_null",
-                "null_ratio": null_ratio,
-                "distinct_ratio": distinct_ratio,
-                "dtype_before": dtype_before,
-            })
+            report_rows.append(
+                {
+                    "column": col,
+                    "action": "dropped",
+                    "reason": "all_null",
+                    "null_ratio": null_ratio,
+                    "distinct_ratio": distinct_ratio,
+                    "dtype_before": dtype_before,
+                }
+            )
             continue
 
         if pd.notna(distinct_ratio) and distinct_ratio < distinct_low:
-            report_rows.append({
-                "column": col,
-                "action": "dropped",
-                "reason": "distinct_ratio<low",
-                "null_ratio": null_ratio,
-                "distinct_ratio": distinct_ratio,
-                "dtype_before": dtype_before,
-            })
+            report_rows.append(
+                {
+                    "column": col,
+                    "action": "dropped",
+                    "reason": "distinct_ratio<low",
+                    "null_ratio": null_ratio,
+                    "distinct_ratio": distinct_ratio,
+                    "dtype_before": dtype_before,
+                }
+            )
             continue
 
         if pd.notna(distinct_ratio) and distinct_ratio > distinct_high:
-            report_rows.append({
-                "column": col,
-                "action": "dropped",
-                "reason": "distinct_ratio>high",
-                "null_ratio": null_ratio,
-                "distinct_ratio": distinct_ratio,
-                "dtype_before": dtype_before,
-            })
+            report_rows.append(
+                {
+                    "column": col,
+                    "action": "dropped",
+                    "reason": "distinct_ratio>high",
+                    "null_ratio": null_ratio,
+                    "distinct_ratio": distinct_ratio,
+                    "dtype_before": dtype_before,
+                }
+            )
             continue
 
         # Rule (iii): percentile scaling
         s_scaled = percentile_scale(s_for_scale)
         keep_df[col] = s_scaled
 
-        report_rows.append({
-            "column": col,
-            "action": "kept_scaled",
-            "reason": "",
-            "null_ratio": null_ratio,
-            "distinct_ratio": distinct_ratio,
-            "dtype_before": dtype_before,
-        })
+        report_rows.append(
+            {
+                "column": col,
+                "action": "kept_scaled",
+                "reason": "",
+                "null_ratio": null_ratio,
+                "distinct_ratio": distinct_ratio,
+                "dtype_before": dtype_before,
+            }
+        )
 
-    report_df = pd.DataFrame(report_rows, columns=[
-        "column", "action", "reason", "null_ratio", "distinct_ratio", "dtype_before"
-    ])
+    report_df = pd.DataFrame(
+        report_rows, columns=["column", "action", "reason", "null_ratio", "distinct_ratio", "dtype_before"]
+    )
 
     return keep_df, report_df
-
 
 
 def remove_correlated_columns(df, threshold=0.8):
@@ -201,6 +208,7 @@ def remove_correlated_columns(df, threshold=0.8):
     -------
     pandas.DataFrame
         DataFrame with identifier column and selected non-redundant columns.
+
     """
     # Separate ID column
     id_col = df.columns[0]
@@ -233,22 +241,25 @@ def remove_correlated_columns(df, threshold=0.8):
     print(f"Initial number of  columns: {n_initial}")
     print(f"Number of dropped columns: {n_dropped}")
     if n_dropped > 0:
-        print(f"Dropped columns: {sorted(list(to_drop))}")
+        print(f"Dropped columns: {sorted(to_drop)}")
     print(f"Number of kept columns: {n_kept}")
 
-    #return df[kept_columns]
+    # return df[kept_columns]
 
     # Build the report rows
-    cols = [col for col in df[dropped_columns]]
+    cols = list(df[dropped_columns])
 
-    report_rows = [{
-        'column': col,
-        'action': 'dropped',
-        'reason': 'correlated',
-        'null_ratio': 'N/A',
-        'distinct_ratio': 'N/A',
-        'dtype_before': str(df[col].dtype),
-    } for col in cols]
+    report_rows = [
+        {
+            'column': col,
+            'action': 'dropped',
+            'reason': 'correlated',
+            'null_ratio': 'N/A',
+            'distinct_ratio': 'N/A',
+            'dtype_before': str(df[col].dtype),
+        }
+        for col in cols
+    ]
 
     # Ensure fixed column order even if empty
     report_columns = ['column', 'action', 'reason', 'null_ratio', 'distinct_ratio', 'dtype_before']
@@ -257,21 +268,21 @@ def remove_correlated_columns(df, threshold=0.8):
     return df[kept_columns], report_df
 
 
+def export(processed_df, report_df, output, report) -> None:
+    try:
+        processed_df.to_csv(output, index=False)
+        report_df.to_csv(report, index=False)
+    except Exception as e:
+        print(f"Failed to write outputs: {e}", file=sys.stderr)
+        sys.exit(1)
 
-def export(processed_df,report_df,output,report):
-        try:
-            processed_df.to_csv(output, index=False)
-            report_df.to_csv(report, index=False)
-        except Exception as e:
-            print(f"Failed to write outputs: {e}", file=sys.stderr)
-            sys.exit(1)
+        # Brief console summary
+    # kept = (report_df["action"] == "kept_scaled").sum()
+    # dropped = (report_df["action"] == "dropped").sum()
+    # print(f"Processed. Kept+scaled: {kept}, Dropped: {dropped}.")
+    print(f"Saved processed CSV to: {output}")
+    print(f"Saved report CSV to:    {report}")
 
-            # Brief console summary
-        #kept = (report_df["action"] == "kept_scaled").sum()
-        #dropped = (report_df["action"] == "dropped").sum()
-        #print(f"Processed. Kept+scaled: {kept}, Dropped: {dropped}.")
-        print(f"Saved processed CSV to: {output}")
-        print(f"Saved report CSV to:    {report}")
 
 def drop_columns_by_suffix_with_report(df: pd.DataFrame, suffixes: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -285,14 +296,17 @@ def drop_columns_by_suffix_with_report(df: pd.DataFrame, suffixes: list[str]) ->
     cols_to_drop = [col for col in df.columns if any(str(col).endswith(suf) for suf in suffixes)]
 
     # Build the report rows
-    report_rows = [{
-        'column': col,
-        'action': 'dropped',
-        'reason': 'unwanted',
-        'null_ratio': 'not analyzed',
-        'distinct_ratio': 'not analyzed',
-        'dtype_before': str(df[col].dtype),
-    } for col in cols_to_drop]
+    report_rows = [
+        {
+            'column': col,
+            'action': 'dropped',
+            'reason': 'unwanted',
+            'null_ratio': 'not analyzed',
+            'distinct_ratio': 'not analyzed',
+            'dtype_before': str(df[col].dtype),
+        }
+        for col in cols_to_drop
+    ]
 
     # Ensure fixed column order even if empty
     report_columns = ['column', 'action', 'reason', 'null_ratio', 'distinct_ratio', 'dtype_before']
@@ -304,8 +318,7 @@ def drop_columns_by_suffix_with_report(df: pd.DataFrame, suffixes: list[str]) ->
     return filtered_df, report_df
 
 
-
-def main():
+def main() -> None:
     p = argparse.ArgumentParser(description="Filter and percentile-scale columns (except the first).")
     p.add_argument("--input", required=True, help="Input CSV file")
     p.add_argument("--output", required=True, help="Output CSV file (processed)")
@@ -313,8 +326,11 @@ def main():
     p.add_argument("--null-thresh", type=float, default=0.3, help="Drop if null ratio > this (default: 0.30)")
     p.add_argument("--distinct-low", type=float, default=0.02, help="Drop if distinct ratio < this (default: 0.02)")
     p.add_argument("--distinct-high", type=float, default=0.98, help="Drop if distinct ratio > this (default: 0.98)")
-    p.add_argument("--allow-non-numeric", action="store_true",
-                   help="Allow percentile scaling for non-numeric columns (e.g., strings)")
+    p.add_argument(
+        "--allow-non-numeric",
+        action="store_true",
+        help="Allow percentile scaling for non-numeric columns (e.g., strings)",
+    )
 
     args = p.parse_args()
 
@@ -329,7 +345,7 @@ def main():
         null_thresh=args.null_thresh,
         distinct_low=args.distinct_low,
         distinct_high=args.distinct_high,
-        allow_non_numeric=args.allow_non_numeric
+        allow_non_numeric=args.allow_non_numeric,
     )
 
     try:
@@ -349,4 +365,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

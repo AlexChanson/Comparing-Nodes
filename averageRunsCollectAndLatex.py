@@ -1,6 +1,8 @@
-import pandas as pd
 from pathlib import Path
 from typing import Tuple, Union
+
+import pandas as pd
+
 
 def average_time_columns_by_label_to_latex_pretty(
     csv_path: Union[str, Path],
@@ -32,12 +34,14 @@ def average_time_columns_by_label_to_latex_pretty(
     Returns
     -------
     (df_out, latex_str) : (pd.DataFrame, str)
+
     """
     csv_path = Path(csv_path)
     df = pd.read_csv(csv_path)
 
     if label_col not in df.columns:
-        raise KeyError(f"Label column '{label_col}' not found. Columns: {list(df.columns)}")
+        msg = f"Label column '{label_col}' not found. Columns: {list(df.columns)}"
+        raise KeyError(msg)
 
     # Drop 'run' and any Unnamed:* columns
     cols_to_drop = set()
@@ -87,11 +91,7 @@ def average_time_columns_by_label_to_latex_pretty(
     colfmt = "".join("r" if c in num_cols else "l" for c in out.columns)
 
     # Use Styler for better LaTeX with hrules and alignment
-    styler = (
-        out.style
-        .hide(axis="index")
-        .format(precision=float_precision)
-    )
+    styler = out.style.hide(axis="index").format(precision=float_precision)
     latex_str = styler.to_latex(hrules=True, column_format=colfmt)
 
     # Optionally write files

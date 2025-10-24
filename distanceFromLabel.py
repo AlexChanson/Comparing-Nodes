@@ -2,8 +2,10 @@
 # Compute schema distances from a start node label to all labels and relationship types
 # using db.schema.visualization() only (instance-free). Traversal is undirected by default.
 
-from collections import deque, defaultdict
-from typing import Dict, Iterable, Set
+from collections import defaultdict, deque
+from collections.abc import Iterable
+from typing import Dict, Set
+
 import pandas as pd
 from neo4j import Session
 
@@ -14,10 +16,12 @@ def _single_label_from_schema_name(name: str) -> str:
     (under your assumption: one label per schema node).
     """
     if not isinstance(name, str):
-        raise ValueError(f"Unexpected schema node name: {name!r}")
+        msg = f"Unexpected schema node name: {name!r}"
+        raise ValueError(msg)
     parts = [p for p in name.split(':') if p]  # drop empty head from leading ':'
     if not parts:
-        raise ValueError(f"No label parsed from schema node name: {name!r}")
+        msg = f"No label parsed from schema node name: {name!r}"
+        raise ValueError(msg)
     return parts[0]  # assumption: exactly one label
 
 
@@ -32,11 +36,13 @@ def fetch_schema_pairs(
       labels   : set of label names
       reltypes : set of relationship type names
       adj      : adjacency map over meta-nodes 'L:<Label>' and 'R:<RELTYPE>'
+
     """
     cypher = "CALL db.schema.visualization() YIELD nodes, relationships RETURN nodes, relationships"
     rec = session.run(cypher).single()
     if rec is None:
-        raise RuntimeError("db.schema.visualization() returned no result.")
+        msg = "db.schema.visualization() returned no result."
+        raise RuntimeError(msg)
     relationships = rec["relationships"]
 
     labels, reltypes = set(), set()
@@ -44,8 +50,8 @@ def fetch_schema_pairs(
 
     for r in relationships:
         rt = r["type"]
-#        s_label = _single_label_from_schema_name(r["startNode"]["name"])
-#        t_label = _single_label_from_schema_name(r["endNode"]["name"])
+        #        s_label = _single_label_from_schema_name(r["startNode"]["name"])
+        #        t_label = _single_label_from_schema_name(r["endNode"]["name"])
         s_label = _single_label_from_schema_name(r.start_node["name"])
         t_label = _single_label_from_schema_name(r.end_node["name"])
 
@@ -94,7 +100,8 @@ def schema_distances_from_label(
     labels, reltypes, adj = fetch_schema_pairs(session, directed=directed)
 
     if start_label not in labels:
-        raise ValueError(f"Start label '{start_label}' not found in schema. Available: {sorted(labels)}")
+        msg = f"Start label '{start_label}' not found in schema. Available: {sorted(labels)}"
+        raise ValueError(msg)
 
     start_key = f"L:{start_label}"
     meta_dist = bfs_meta_dist(adj, start_key)
@@ -121,9 +128,7 @@ def schema_distances_for_targets(
     targets: Iterable[str],
     directed: bool = False,
 ) -> pd.DataFrame:
-    """
-    Convenience: compute distances and filter to a target set (mix of labels and rel-types).
-    """
+    """Convenience: compute distances and filter to a target set (mix of labels and rel-types)."""
     df = schema_distances_from_label(session, start_label, directed=directed)
     return df[df["type"].isin(set(targets))].reset_index(drop=True)
 

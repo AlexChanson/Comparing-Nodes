@@ -8,13 +8,14 @@ Usage:
                                         --outdir .
 """
 
-import argparse
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-def main(input_csv: Path, outdir: Path):
+
+def main(input_csv: Path, outdir: Path) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     # --- Load ---
@@ -26,11 +27,7 @@ def main(input_csv: Path, outdir: Path):
     numeric_cols_to_avg = [c for c in numeric_cols if c not in exclude]
 
     # --- Average by (database, label) ---
-    grouped = (
-        df.groupby(["database", "label"], dropna=False)[numeric_cols_to_avg]
-          .mean()
-          .reset_index()
-    )
+    grouped = df.groupby(["database", "label"], dropna=False)[numeric_cols_to_avg].mean().reset_index()
 
     # --- Correlation (Spearman) over aggregated numeric columns ---
     corr_cols = grouped.select_dtypes(include=[np.number]).columns.tolist()
@@ -67,10 +64,11 @@ def main(input_csv: Path, outdir: Path):
     print(f"[OK] Saved: {heatmap_png}")
     print(f"[OK] Saved: {corr_csv}")
 
+
 if __name__ == "__main__":
-    #p = argparse.ArgumentParser()
-    #p.add_argument("--input", type=Path, required=True, help="Path to the input CSV")
-    #p.add_argument("--outdir", type=Path, default=Path("."), help="Directory to write outputs")
-    #args = p.parse_args()
-    #main(args.input, args.outdir)
-    main('averaged_time_by_label.csv',Path('reports'))
+    # p = argparse.ArgumentParser()
+    # p.add_argument("--input", type=Path, required=True, help="Path to the input CSV")
+    # p.add_argument("--outdir", type=Path, default=Path("."), help="Directory to write outputs")
+    # args = p.parse_args()
+    # main(args.input, args.outdir)
+    main('averaged_time_by_label.csv', Path('reports'))
