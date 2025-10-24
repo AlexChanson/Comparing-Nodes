@@ -1,9 +1,11 @@
 import argparse
+import dataclasses
+import json
 import re
 import time
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Collection, Dict, List, Optional, Set, Tuple
 
 import analyzeIndicatorDevisingTimes
 import averageRunsCollectAndLatex
@@ -824,7 +826,45 @@ class Neo4jConnector:
         return node_count + rel_count
 
 
-def main(pushdown, null_ratio, nbRuns):
+@dataclasses.dataclass
+class DatabaseConfig:
+    name: str
+    home: str
+
+    # FIXME: This should be computed automatically
+    labels: Set[str]
+    number_of_node: int
+    number_of_edge: int
+    avg_properties_node: float
+    avg_properties_edge: float
+
+    uri: str = "bolt://localhost:7687"
+    username: str = "neo4j"
+    password: str | None = None
+
+    def get_db_spec(self) -> DbSpec:
+        return DbSpec(
+            self.name,
+            self.home,
+            self.uri,
+            self.username,
+            self.password
+        )
+
+
+def main(
+        database_config: DatabaseConfig,
+        runs: int = 1,
+        distinct_low: float =0.000001,
+        distinct_high: float =1,
+        correlation_threshold: float =0.98,
+        null_threshold: float = 0.1,
+        unwanted_suffixes: Collection[str] = (),
+        pushdown: bool=False,
+        remove_nulls: bool = True,
+        create_index: bool = True,
+        drop_index: bool = False,
+) -> None:
     current_time = time.localtime()
     formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
@@ -847,255 +887,213 @@ def main(pushdown, null_ratio, nbRuns):
     ]
     dfresults = pd.DataFrame(columns=column_names)
 
-    #  URI/user/password
-    uri = "bolt://localhost:7687"
-    user = "neo4j"
-    dict_databases_labels = {
-        "airportnew": ["Airport", "Country", "City"],
-        "recommendations": ["Actor", "Movie", "Director"],
-        "icijleaks": ["Entity", "Intermediary", "Officer"],
-    }
-    dict_databases_passwords = {
-        "airports": "airports",
-        "airportnew": "airportnew",
-        "recommendations": "recommendations",
-        "icijleaks": "icijleaks",
-    }
-    dict_databases_homes = {
-        "airports": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
-        "airportnew": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-786ac4bd-9d03-4fda-b510-9230a5f0f5fa",
-        "recommendations": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e0a8a3a7-9923-42ba-bdc6-a54c7dc1f265",
-        "icijleaks": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179",
-    }
-    dict_databases_numbers = {  # number of nodes, number of edges, avg number of properties nodes/edges
-        "airports": [52944, 136948, 3.99, 0.86],
-        "airportnew": [52944, 136948, 4.39, 2.13],
-        "recommendations": [28863, 166261, 1.6, 1.2],
-        "icijleaks": [20165233, 339267, 1, 0],
-    }
-    # thresholds for validating and transforming (scale,contextualize) candidate indicators
-    null_threshold = null_ratio
-    distinct_low = 0.000001
-    distinct_high = 1
-    correlation_threshold = 0.98
-    unwanted_suffixes = ['_code', '_id', 'longitude', 'latitude']  # for unwanted properties
+    # Always drop index on create
+    if create_index:
+        drop_index = True
 
-    # True = remove lines with at least one null value
-    NONULLS = True
+    for run in range(runs):
+        print("database: ", database_config.name)
 
-    # if unwanted properties, acceptable density (validation) are pushed down indicator collection
-    PUSHDOWN = pushdown
+        stop_current_dbms()
+        db_spec = database_config.get_db_spec()
+        start_dbms(db_spec)
 
-    # should we drop/create all indices on numerical properties
-    DROP_INDEX = True
-    CREATE_INDEX = True
-
-    # for tests
-    nbRuns = nbRuns
-
-    for run in range(nbRuns):
-        for db_name in dict_databases_labels:
-            print("database: ", db_name)
-
-            stop_current_dbms()
-            dbspec = DbSpec(db_name, dict_databases_homes[db_name], uri, user, dict_databases_passwords[db_name])
-            start_dbms(dbspec)
-
-            with Neo4jConnector(uri, user, db_name) as db:
-                # counts the number of numeric properties
-                resprop = db.count_numeric_properties()
-                # drop index
-                if DROP_INDEX:
-                    res = db.drop_indexes_on_numeric_properties(
-                        numeric_types=("Long", "Double", "Float", "Integer"),
-                        drop_suffixes=[],  # optional
-                        include_nodes=True,
-                        include_relationships=True,
-                        dry_run=False,  # set True to preview
-                    )
-                # create indices
-                if CREATE_INDEX:
-                    print("Indexing numerical properties")
-                    start_time = time.time()
-                    res = db.create_indexes_on_numeric_properties(
-                        numeric_types=("Long", "Double", "Float", "Integer"),
-                        drop_suffixes=unwanted_suffixes,
-                        include_nodes=True,
-                        include_relationships=True,
-                        dry_run=False,  # set True to preview without creating
-                    )
-                    end_time = time.time()
-                    timings_indexes = end_time - start_time
-                    print("Node indexes:", res["node"])
-                    print("Relationship indexes:", res["relationship"])
-                else:
-                    timings_indexes = 0
-
-                # finds relationship cardinalities
-                print("Finding cardinalities")
+        with Neo4jConnector(database_config.uri, database_config.username, database_config.name) as db:
+            # counts the number of numeric properties
+            resprop = db.count_numeric_properties()
+            # drop index
+            if drop_index:
+                res = db.drop_indexes_on_numeric_properties(
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=[],  # optional
+                    include_nodes=True,
+                    include_relationships=True,
+                    dry_run=False,  # set True to preview
+                )
+            # create indices
+            if create_index:
+                print("Indexing numerical properties")
                 start_time = time.time()
-                manyToOne, manyToMany = db.detect_relationship_cardinalities()
+                res = db.create_indexes_on_numeric_properties(
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,
+                    include_nodes=True,
+                    include_relationships=True,
+                    dry_run=False,  # set True to preview without creating
+                )
                 end_time = time.time()
-                timings_cardinalities = end_time - start_time
+                timings_indexes = end_time - start_time
+                print("Node indexes:", res["node"])
+                print("Relationship indexes:", res["relationship"])
+            else:
+                timings_indexes = 0
 
-                if PUSHDOWN:
-                    # finding properties with acceptable density
-                    start_time = time.time()
-                    props = db.numeric_properties_with_min_nonnull_ratio(
-                        min_nonnull_ratio=1 - null_threshold,
-                        numeric_types=("Long", "Double", "Float", "Integer"),
-                        drop_suffixes=unwanted_suffixes,  # optional
+            # finds relationship cardinalities
+            print("Finding cardinalities")
+            start_time = time.time()
+            manyToOne, manyToMany = db.detect_relationship_cardinalities()
+            end_time = time.time()
+            timings_cardinalities = end_time - start_time
+
+            if pushdown:
+                # finding properties with acceptable density
+                start_time = time.time()
+                props = db.numeric_properties_with_min_nonnull_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,  # optional
+                )
+                # print('time nulls:', time.time() - start_time)
+                # suffixes_for_removal = unwanted_suffixes + props
+                suffixes_for_removal = []
+                # to_keep=props
+                to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                print("number of properties to keep:", len(to_keep))
+                ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                end_time = time.time()
+                timings_density = end_time - start_time
+            else:
+                props = db.numeric_properties_with_min_nonnull_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,  # optional
+                )
+                to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                toPassForValidation = db.numeric_properties_with_min_null_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,  # optional
+                )
+                # ratio_dropped = 100*len(toPassForValidation) / resprop
+                suffixes_for_removal = []
+                to_keep = []  # no pushdown
+                timings_density = 0
+            timings_preprocessing = timings_indexes + timings_density
+
+            for label in database_config.labels:
+                print("Label: ", label)
+
+                # collect candidate indicators
+                print("Collecting candidate indicators")
+                start_time = time.time()
+
+                # get context
+                # get * relationships properties for label
+                dfm2m = aggregate_m2m_properties_for_label(
+                    db.get_driver(),
+                    label,
+                    agg="sum",
+                    include_relationship_properties=True,
+                    only_reltypes=manyToMany,
+                    suffixes=suffixes_for_removal,
+                    to_keep=to_keep,
+                )
+                # print('* props:', time.time() - start_time)
+
+                # get 1 relationships properties for label (and save those to csv)
+                out = "sample_data/" + label + "_indicators.csv"
+                # do not send queries for edges if they do not have properties
+                if database_config.avg_properties_edge == float(0):
+                    df121 = db.fetch_as_dataframe(
+                        out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep
                     )
-                    # print('time nulls:', time.time() - start_time)
-                    # suffixes_for_removal = unwanted_suffixes + props
-                    suffixes_for_removal = []
-                    # to_keep=props
-                    to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
-                    print("number of properties to keep:", len(to_keep))
-                    ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
-                    end_time = time.time()
-                    timings_density = end_time - start_time
                 else:
-                    props = db.numeric_properties_with_min_nonnull_ratio(
-                        min_nonnull_ratio=1 - null_threshold,
-                        numeric_types=("Long", "Double", "Float", "Integer"),
-                        drop_suffixes=unwanted_suffixes,  # optional
+                    df121 = db.fetch_as_dataframe(
+                        out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep
                     )
-                    to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
-                    ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
-                    toPassForValidation = db.numeric_properties_with_min_null_ratio(
-                        min_nonnull_ratio=1 - null_threshold,
-                        numeric_types=("Long", "Double", "Float", "Integer"),
-                        drop_suffixes=unwanted_suffixes,  # optional
-                    )
-                    # ratio_dropped = 100*len(toPassForValidation) / resprop
-                    suffixes_for_removal = []
-                    to_keep = []  # no pushdown
-                    timings_density = 0
-                timings_preprocessing = timings_indexes + timings_density
+                # print('1 props:', time.time() - start_time)
 
-                for label in dict_databases_labels[db_name]:
-                    print("Label: ", label)
+                # out join * and 1
+                dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
-                    # collect candidate indicators
-                    print("Collecting candidate indicators")
-                    start_time = time.time()
+                # get in degrees of label
+                dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
+                # print('degrees:', time.time() - start_time)
 
-                    # get context
-                    # get * relationships properties for label
-                    dfm2m = aggregate_m2m_properties_for_label(
-                        db.get_driver(),
-                        label,
-                        agg="sum",
-                        include_relationship_properties=True,
-                        only_reltypes=manyToMany,
-                        suffixes=suffixes_for_removal,
-                        to_keep=to_keep,
-                    )
-                    # print('* props:', time.time() - start_time)
+                # then outer join with dftemp
+                dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
 
-                    # get 1 relationships properties for label (and save those to csv)
-                    out = "sample_data/" + label + "_indicators.csv"
-                    # do not send queries for edges if they do not have properties
-                    if dict_databases_numbers[db_name][3] == float(0):
-                        df121 = db.fetch_as_dataframe(
-                            out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep
-                        )
-                    else:
-                        df121 = db.fetch_as_dataframe(
-                            out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep
-                        )
-                    # print('1 props:', time.time() - start_time)
+                end_time = time.time()
+                indicatorsTimings = end_time - start_time
 
-                    # out join * and 1
-                    dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
+                # validation
+                print("Validating candidate indicators")
 
-                    # get in degrees of label
-                    dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
-                    # print('degrees:', time.time() - start_time)
+                if pushdown:
+                    suffixes_unwanted = []
+                else:
+                    suffixes_unwanted = unwanted_suffixes + toPassForValidation
 
-                    # then outer join with dftemp
-                    dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
+                start_time = time.time()
+                # first remove unwanted indicators
+                if not pushdown:
+                    dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
+                # second remove correlated indicators
+                dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
+                # then check for variance and nulls, and scale
+                keep, report = process_dataframe(dffinal, null_threshold, distinct_low, distinct_high, pushdown)
 
-                    end_time = time.time()
-                    indicatorsTimings = end_time - start_time
+                # union reportUW, reportCorr and report
+                if not pushdown:
+                    report = pd.concat([report, reportUW, reportCorr], axis=0)
+                else:
+                    report = pd.concat([report, reportCorr], axis=0)
 
-                    # validation
-                    print("Validating candidate indicators")
+                processedIndicators = "sample_data/" + label + "_indicators_processed.csv"
+                processingReport = "reports/" + label + "_indicators_processed.csv"
 
-                    if PUSHDOWN:
-                        suffixes_unwanted = []
-                    else:
-                        suffixes_unwanted = unwanted_suffixes + toPassForValidation
+                # if we remove lines with at least one null
+                if remove_nulls:
+                    keep = utility.remove_rows_with_nulls(keep)
+                    processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
 
-                    start_time = time.time()
-                    # first remove unwanted indicators
-                    if not PUSHDOWN:
-                        dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
-                    # second remove correlated indicators
-                    dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
-                    # then check for variance and nulls, and scale
-                    keep, report = process_dataframe(dffinal, null_threshold, distinct_low, distinct_high, PUSHDOWN)
+                # contextualization
+                dist = schema_hops_from_label(
+                    db.get_driver(), label, include_relationship_types=True, directed=False
+                )
+                keep = weight_df_by_schema_hops(keep, dist)
 
-                    # union reportUW, reportCorr and report
-                    if not PUSHDOWN:
-                        report = pd.concat([report, reportUW, reportCorr], axis=0)
-                    else:
-                        report = pd.concat([report, reportCorr], axis=0)
+                export(keep, report, processedIndicators, processingReport)
 
-                    processedIndicators = "sample_data/" + label + "_indicators_processed.csv"
-                    processingReport = "reports/" + label + "_indicators_processed.csv"
+                end_time = time.time()
+                validationTimings = end_time - start_time
 
-                    # if we remove lines with at least one null
-                    if NONULLS:
-                        keep = utility.remove_rows_with_nulls(keep)
-                        processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+                # call laplacian heuristics on data
+                # start_time = time.time()
+                # partition=score(processedIndicators)
+                # partition={}
+                # end_time = time.time()
+                # timingsPartition = end_time - start_time
+                timings_total = (
+                    indicatorsTimings + validationTimings + timings_preprocessing + timings_cardinalities
+                )
 
-                    # contextualization
-                    dist = schema_hops_from_label(
-                        db.get_driver(), label, include_relationship_types=True, directed=False
-                    )
-                    keep = weight_df_by_schema_hops(keep, dist)
+                # computes avg numerical properties for node type label
+                avgprop = db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
-                    export(keep, report, processedIndicators, processingReport)
+                # save to result dataframe
+                dfresults.loc[len(dfresults)] = [
+                    run,
+                    pushdown,
+                    database_config.name,
+                    database_config.number_of_node,
+                    database_config.number_of_edge,
+                    label,
+                    keep.shape[1] - 1,
+                    len(keep),
+                    avgprop,
+                    timings_preprocessing,
+                    timings_cardinalities,
+                    indicatorsTimings,
+                    validationTimings,
+                    timings_total,
+                    ratio_dropped,
+                ]
+                if runs != 1:
+                    dfresults.to_csv('reports/tempres' + formatted_time + '.csv', mode='a', header=True)
+        stop_dbms(db_spec)
 
-                    end_time = time.time()
-                    validationTimings = end_time - start_time
-
-                    # call laplacian heuristics on data
-                    # start_time = time.time()
-                    # partition=score(processedIndicators)
-                    # partition={}
-                    # end_time = time.time()
-                    # timingsPartition = end_time - start_time
-                    timings_total = (
-                        indicatorsTimings + validationTimings + timings_preprocessing + timings_cardinalities
-                    )
-
-                    # computes avg numerical properties for node type label
-                    avgprop = db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
-
-                    # save to result dataframe
-                    dfresults.loc[len(dfresults)] = [
-                        run,
-                        PUSHDOWN,
-                        db_name,
-                        dict_databases_numbers[db_name][0],
-                        dict_databases_numbers[db_name][1],
-                        label,
-                        keep.shape[1] - 1,
-                        len(keep),
-                        avgprop,
-                        timings_preprocessing,
-                        timings_cardinalities,
-                        indicatorsTimings,
-                        validationTimings,
-                        timings_total,
-                        ratio_dropped,
-                    ]
-                    if nbRuns != 1:
-                        dfresults.to_csv('reports/tempres' + formatted_time + '.csv', mode='a', header=True)
-            stop_dbms(dbspec)
     dfresults.to_csv(fileResults, mode='a', header=True)
     # to average results by labels
     out, latex = averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(
@@ -1109,6 +1107,7 @@ def main(pushdown, null_ratio, nbRuns):
     print(latex)
     # to analyze correlations in the result file
     analyzeIndicatorDevisingTimes.main(Path('reports/averaged_time_by_label.csv'), Path('reports'))
+
     # return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
     return dfresults
 
@@ -1150,11 +1149,31 @@ def testPushdown(nbRuns) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-p', '--pushdown', action='store_true')
-    parser.add_argument('-n', '--null-ratio', default=0.1, type=float)
-    parser.add_argument('-r', '--runs', default=3, type=int)
+    parser.add_argument('config')
+    parser.add_argument('-r', '--runs', default=1, type=int)
+    parser.add_argument('-dl', '--distinct-low', default=0.000001, type=float)
+    parser.add_argument('-dh', '--distinct-high', default=1, type=float)
+    parser.add_argument('-c', '--correlation-threshold', default=0.98, type=float)
+    parser.add_argument('-n', '--null-threshold', default=0.1, type=float)
+    parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str)
+    parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
+    parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
+    parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
+
     args = parser.parse_args()
 
-    # testPushdown(1)
-    # main(False, 0.8, 3)
-    main(args.pushdown, args.null_ratio, args.runs)
+    with open(args.config) as f:
+        database_config = json.load(f, object_hook=lambda x: DatabaseConfig(**x))
+
+    main(
+        database_config=database_config,
+        runs=args.runs,
+        distinct_low=args.distinct_low,
+        distinct_high=args.distinct_high,
+        null_threshold=args.null_threshold,
+        correlation_threshold=args.correlation_threshold,
+        unwanted_suffixes=args.unwanted_suffixes,
+        pushdown=args.pushdown,
+        remove_nulls=not args.keep_nulls,
+        create_index=args.create_index,
+    )

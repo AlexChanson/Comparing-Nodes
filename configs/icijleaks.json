@@ -1,0 +1,11 @@
+{
+  "name": "icijleaks",
+  "labels": ["Entity", "Intermediary", "Officer"],
+  "home": "/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-e93256e3-0282-4a59-84e6-7633fcd88179",
+  "number_of_node": 20165233,
+  "number_of_edge": 339267,
+  "avg_properties_node": 1,
+  "avg_properties_edge": 0,
+  "username": "neo4j",
+  "password": "icijleaks"
+}
