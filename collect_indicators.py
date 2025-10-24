@@ -856,11 +856,9 @@ def main(pushdown,null_ratio,nbRuns):
     #  URI/user/password
     uri="bolt://localhost:7687"
     user="neo4j"
-    dict_databases_labels={#"airports":["Airport","Country","City"],
-                           #"airportnew": ["Airport", "Country", "City"],
-                           "airportnew": ["Airport", "City"], #
-                        # "recommendations":["Actor","Movie","Director"],
-                           #"icijleaks":["Entity", "Intermediary", "Officer"]
+    dict_databases_labels={"airportnew": ["Airport", "Country", "City"],
+                            "recommendations":["Actor","Movie","Director"],
+                            "icijleaks":["Entity", "Intermediary", "Officer"]
                            }
     dict_databases_passwords={"airports":"airports", "airportnew":"airportnew", "recommendations":"recommendations", "icijleaks":"icijleaks"}
     dict_databases_homes={"airports":"/Users/marcel/Library/Application Support/Neo4j Desktop/Application/relate-data/dbmss/dbms-8c0ecfb9-233f-456f-bb53-715a986cb1ea",
@@ -1075,17 +1073,16 @@ def main(pushdown,null_ratio,nbRuns):
     #return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
     return dfresults
 
-def testPushdown():
+def testPushdown(nbRuns):
     fileResults = 'reports/results_test_pushdown.csv'
     #column_names = ['run', 'pushdown', 'null_ratio', 'database', 'label', 'indicators#', 'nodes#',
     #                'time_Preprocessing', 'time_Cardinalities', 'time_Indicators', 'time_Validation', 'time_total',
     #                'ratio_prop_dropped']
     column_names = ['run','pushdown','database', 'N','E', 'label', 'indicators#', 'nodes#', 'avgLabelProp', 'time_Preprocessing', 'time_Cardinalities', 'time_Indicators','time_Validation','time_total','ratio_prop_dropped']
     dfresults = pd.DataFrame(columns=column_names)
-    for run in range(3):
+    for run in range(nbRuns):
         for pushdown in [False,True]:
-            #for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
-            for null_ratio in [0.5, 0.3]:
+            for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
                 #db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped=main(pushdown,null_ratio,1)
                 #dfresults.loc[len(dfresults)] = [run, pushdown, null_ratio ,  db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped]
                 result = main(pushdown, null_ratio, 1)
@@ -1096,6 +1093,7 @@ def testPushdown():
 
 
 if __name__ == "__main__":
-    testPushdown()
-    #main(True, 0.5, 1)
+    #testPushdown(1)
+    #main(False, 0.8, 3)
+    main(True, 0.1, 3)
 

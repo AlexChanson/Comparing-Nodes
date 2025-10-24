@@ -46,7 +46,7 @@ STYLE = "whitegrid"
 PALETTE = "deep"
 
 # Auto log-scale: if all bar means > 0 and max/min >= LOG_THRESHOLD -> log y
-LOG_THRESHOLD = 50.0
+LOG_THRESHOLD = 50
 EPS_POS = 1e-12
 
 # Error bar styling

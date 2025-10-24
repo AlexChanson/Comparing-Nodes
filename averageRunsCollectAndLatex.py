@@ -106,7 +106,7 @@ def average_time_columns_by_label_to_latex_pretty(
 # ===== Example usage =====
 if __name__ == "__main__":
     df_out, latex = average_time_columns_by_label_to_latex_pretty(
-        csv_path="reports/results_18-10-25:15:38:04.csv",
+        csv_path="reports/results_21-10-25:16:51:24.csv",
         label_col="label",
         float_precision=2,
         output_csv="averaged_time_by_label.csv",
