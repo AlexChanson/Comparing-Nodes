@@ -11,8 +11,8 @@ log_dir = "/works/logs/cn_experiments/"
 script_path = "./main.py"
 python_bin = "python3"
 nb_samples = 5
-datasets = ["iris" ] #"actors", "movies", "directors", "city", "country", "entity", "officer", "airports"
-heuristics = ["exp"] # "ls", "sls", "lp", "rd", "lp", "sls"
+datasets = ["intermediary" ] #"actors", "movies", "directors", "city", "country", "entity", "officer", "airports"
+heuristics = ["exp", "ls", "sls", "lp", "rd"] #, "lp", "sls"
 
 
 def run_exp(conf):
@@ -42,7 +42,7 @@ if __name__ == '__main__':
                 if heuristic != "exp":
                     sids = range(nb_samples)
                 else:
-                    sids = range(10)#[1]
+                    sids = [1]
                 for sample_id in sids:
                         configs.append((data_config, heuristic, k, sample_id))
 
