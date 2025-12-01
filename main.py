@@ -279,7 +279,7 @@ def heur_local_search(data, features, k, mtd, start, n_steps=5):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Please specify dataset name")
 
-    parser.add_argument("-ds", "--dataset", default="actors", help="Name of dataset (iris, airports, movies)")
+    parser.add_argument("-ds", "--dataset", default="iris", help="Name of dataset (iris, airports, movies)")
     parser.add_argument("-k", "--k", default=3, help="Number of clusters")
     parser.add_argument("-s", "--steps", default=10, help="Local search max steps")
     parser.add_argument("-a", "--alpha", default=1.0, help="Alpha parameter")
@@ -356,6 +356,28 @@ if __name__ == '__main__':
         sol_rd = heur_random(data, features, k, mtd=mtd)
         print("[best solution]:", sol_rd)
         print("[Silhouette]", silhouette_score(data[:, sol_rd.derive_clustering_mask()], sol_rd.membership))
+
+    # we need to call cpp backend
+    elif args.method == "mincut":
+        import subprocess
+        import platform
+
+        binary_path = ""
+
+        if "darwin" in platform.system().lower():
+            binary_path = "./bin/backend_appl"
+        else:
+            print("System not supported")
+            exit(2)
+
+        result = subprocess.run([binary_path],capture_output=True,text=True)
+
+        if result.returncode == 0:
+            # Get output as a list of strings
+            lines = result.stdout.splitlines()
+            print(lines)
+        else:
+            print(f"Error occurred: {result.stderr}")
 
     et = time.process_time()
     et_w = time.time()
