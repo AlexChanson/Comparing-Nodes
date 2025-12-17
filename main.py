@@ -5,6 +5,7 @@ from copy import copy
 from itertools import count
 
 import numpy as np
+
 from b_and_b import *
 from clustering import *
 from datasets import *
@@ -370,12 +371,36 @@ if __name__ == '__main__':
             print("System not supported")
             exit(2)
 
-        result = subprocess.run([binary_path],capture_output=True,text=True)
+        #write normalized data to disk
+        with open("/tmp/cmp_nodes_temp.csv", "w") as f:
+            f.write(",".join(map(str, features)) + "\n")
+            for i in range(len(data)):
+                f.write(",".join(map(str, data[i])) + "\n")
+
+        result = subprocess.run([binary_path, "--dataset", "/tmp/cmp_nodes_temp.csv"],capture_output=True,text=True)
 
         if result.returncode == 0:
             # Get output as a list of strings
             lines = result.stdout.splitlines()
-            print(lines)
+            membership = None
+            mask = None
+            obj = None
+            for line in lines:
+                if line.startswith("[CLUSTERS]"):
+                    l = line.split("ERS] [")[1][:-1]
+                    membership = list(map(int, l.split(",")))
+                if line.startswith("[SOLUTION]"):
+                    l = line.split("UTION] [")[1][:-1]
+                    mask = list(map(int, l.split(",")))
+                if line.startswith("[OBJ]"):
+                    obj = float(line.split("OBJ] ")[1])
+            sol = Node()
+            sol.membership = membership
+            sol.sol = mask
+            sol.obj = obj
+            #print(lines)
+            print("[best solution]:", sol)
+            print("[Silhouette]", silhouette_score(data[:, sol.derive_clustering_mask()], sol.membership))
         else:
             print(f"Error occurred: {result.stderr}")
 
