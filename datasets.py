@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from sklearn import preprocessing
 
@@ -141,7 +143,7 @@ def load_officer(path="./sample_data/Officer_indicators_processed_nonulls.csv"):
     return features, np.asarray(nodes)
 
 
-def load_custom(path, delimiter):
+def load_custom_OLD(path, delimiter):
     features = []
     nodes = []
     with open(path) as f:
@@ -150,5 +152,41 @@ def load_custom(path, delimiter):
         for line in f:
             line = line.strip()
             nodes.append([float('nan') if x == '' else float(x) for x in line.split(delimiter)])
-    print("LOADED AIRPORTS |D|=", len(features), " n=", len(nodes))
+    #TODO drop columns with Nans
+    print("LOADED DATASET ", path," |D|=", len(features), " n=", len(nodes))
+    return features, np.asarray(nodes)
+
+
+def load_custom(path, delimiter):
+    features = []
+    nodes = []
+    with open(path) as f:
+        first_line = f.readline()
+        features = first_line.strip().split(delimiter)
+
+        for line in f:
+            values = []
+            for x in line.strip().split(delimiter):
+                if x == "":
+                    values.append(float('nan'))
+                else:
+                    try:
+                        values.append(float(x))
+                    except ValueError:
+                        values.append(float('nan'))
+            nodes.append(values)
+
+    # --- drop columns containing at least one NaN ---
+    cols_to_keep = [
+        i for i in range(len(nodes[0]))
+        if all(not math.isnan(row[i]) for row in nodes)
+    ]
+
+    nodes = [
+        tuple(row[i] for i in cols_to_keep)
+        for row in nodes
+    ]
+
+    features = [features[i] for i in cols_to_keep]
+    print("LOADED DATASET ", path, " |D|=", len(features), " n=", len(nodes))
     return features, np.asarray(nodes)
