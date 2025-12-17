@@ -377,7 +377,7 @@ if __name__ == '__main__':
             for i in range(len(data)):
                 f.write(",".join(map(str, data[i])) + "\n")
 
-        result = subprocess.run([binary_path, "--dataset", "/tmp/cmp_nodes_temp.csv"],capture_output=True,text=True)
+        result = subprocess.run([binary_path, "--dataset", "/tmp/cmp_nodes_temp.csv", "--k", args.k],capture_output=True,text=True)
 
         if result.returncode == 0:
             # Get output as a list of strings
