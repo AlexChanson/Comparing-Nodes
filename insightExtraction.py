@@ -1,74 +1,107 @@
 import numpy as np
+import pandas as pd
 
-def top_k_diverse_pairs_per_cluster(data, sol, k=5):
+def top_k_diverse_pairs_per_cluster(
+    data,
+    sol,
+    feature,               # ← NEW: feature names array
+    k=5,
+    max_features=None,
+    float_fmt="{:.4f}"
+):
     """
-    For each cluster label in sol.membership, return the top-k pairs (i, j)
-    within that cluster that maximize sum(abs(x_i - x_j)) over comparison features
-    (features where sol.sol == 1).
+    For each cluster, find top-k pairs maximizing sum of absolute differences
+    over comparison features (sol.sol == 1), and print analyst-friendly tables.
 
-    Returns:
-        dict[label] -> list of tuples (score, i, j)
-        where i, j are indices in the original dataset.
+    Parameters
+    ----------
+    data : array-like (n_samples, n_features)
+    sol  : object with attributes
+           - sol.membership : cluster labels
+           - sol.sol        : feature partition
+    feature : array-like (n_features,)
+        Feature names
+    k : int
+        Number of top pairs per cluster
+    max_features : int or None
+        Max number of comparison features to display per pair
+    float_fmt : str
+        Float formatting string
     """
     X = np.asarray(data)
     membership = np.asarray(sol.membership)
     feat_partition = np.asarray(sol.sol).ravel()
+    feature = np.asarray(feature)
 
-    # Indices of features used for comparison (marked with 1)
+    # Indices of comparison features
     comp_idx = np.where(feat_partition == 1)[0]
     if comp_idx.size == 0:
-        raise ValueError("No comparison features found: sol.sol has no entries equal to 1.")
+        raise ValueError("No comparison features (sol.sol == 1).")
 
-    # Work only on comparison features
     Xc = X[:, comp_idx]
+    comp_names = feature[comp_idx]
 
-    results = {}
     labels = np.unique(membership)
 
     for lab in labels:
         idx = np.where(membership == lab)[0]
         m = idx.size
+
+        print("\n" + "=" * 80)
+        print(f"CLUSTER {lab}  (size={m})")
+
         if m < 2:
-            results[lab] = []
+            print("Not enough points for pairs.")
             continue
 
-        # Submatrix for this cluster
-        A = Xc[idx]  # shape (m, d)
+        A = Xc[idx]
 
-        # Pairwise L1 distances (sum of absolute differences) via broadcasting:
-        # D[p, q] = sum_k |A[p,k] - A[q,k]|
-        # Shape: (m, m)
+        # Pairwise L1 distances
         D = np.abs(A[:, None, :] - A[None, :, :]).sum(axis=2)
 
-        # Consider only upper triangle (p < q) to avoid duplicates and self-pairs
         iu, ju = np.triu_indices(m, k=1)
         dist_vals = D[iu, ju]
 
-        # Get top-k indices among dist_vals (descending)
         kk = min(k, dist_vals.size)
-        if kk == 0:
-            results[lab] = []
-            continue
-
         top_pos = np.argpartition(dist_vals, -kk)[-kk:]
-        top_pos = top_pos[np.argsort(dist_vals[top_pos])[::-1]]  # sort descending
+        top_pos = top_pos[np.argsort(dist_vals[top_pos])[::-1]]
 
-        # Convert back to original data indices
-        top_pairs = []
-        for p in top_pos:
-            score = float(dist_vals[p])
-            i = int(idx[iu[p]])
-            j = int(idx[ju[p]])
-            top_pairs.append((score, i, j))
+        for rank, p in enumerate(top_pos, start=1):
+            i = idx[iu[p]]
+            j = idx[ju[p]]
 
-        results[lab] = top_pairs
+            xi = Xc[i]
+            xj = Xc[j]
+            diff = np.abs(xi - xj)
+            total = diff.sum()
 
-    return results
+            print(f"\nPair #{rank}  (data[{i}] vs data[{j}])")
+            print(f"Total |diff| = {float_fmt.format(total)}")
 
+            # Sort features by contribution
+            order = np.argsort(diff)[::-1]
+            if max_features is not None:
+                order = order[:max_features]
 
-# ---- Example usage ----
-# pairs_by_cluster = top_k_diverse_pairs_per_cluster(data, sol, k=5)
-# for lab, pairs in pairs_by_cluster.items():
-#     print(f"Cluster {lab}:")
-#     for score, i, j in pairs:
-#         print(f"  score={score:.3f} pair=({i}, {j})")
+            df = pd.DataFrame(
+                {
+                    "data[i]": xi[order],
+                    "data[j]": xj[order],
+                    "|diff|": diff[order],
+                },
+                index=comp_names[order]
+            )
+
+            with pd.option_context(
+                "display.float_format",
+                lambda x: float_fmt.format(x)
+            ):
+                print(df)
+
+            if max_features is not None and max_features < diff.size:
+                shown = diff[order].sum()
+                hidden = total - shown
+                print(
+                    f"... {diff.size - max_features} more features "
+                    f"(hidden |diff| sum = {float_fmt.format(hidden)})"
+                )

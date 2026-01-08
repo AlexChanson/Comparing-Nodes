@@ -416,8 +416,17 @@ if __name__ == '__main__':
     print('[Wall time]', res_w, 'seconds')
 
 # insight extraction
-    pairs_by_cluster = top_k_diverse_pairs_per_cluster(data, sol, k=5)
-    for lab, pairs in pairs_by_cluster.items():
-        print(f"Cluster {lab}:")
-        for score, i, j in pairs:
-            print(f"  score={score:.3f} pair=({i}, {j})")
+#    pairs_by_cluster = top_k_diverse_pairs_per_cluster(data, sol, k=5)
+#    for lab, pairs in pairs_by_cluster.items():
+#        print(f"Cluster {lab}:")
+#        for score, i, j in pairs:
+#           print(f"  score={score:.3f} pair=({i}, {j})")
+
+    top_k_diverse_pairs_per_cluster(
+        data,
+        sol,
+        k=5,
+        feature=features,
+        max_features=3   # show only 6 most discriminating features
+    )
+
