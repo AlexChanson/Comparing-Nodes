@@ -13,6 +13,8 @@ from numpy.typing import NDArray
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 from sklearn.metrics import silhouette_score
+
+from insightExtraction import top_k_diverse_pairs_per_cluster
 from utility import *
 
 # from PrettyPrint import PrettyPrintTree
@@ -370,7 +372,7 @@ if __name__ == '__main__':
         else:
             print("System not supported")
             exit(2)
-
+        print(binary_path)
         #write normalized data to disk
         with open("/tmp/cmp_nodes_temp.csv", "w") as f:
             f.write(",".join(map(str, features)) + "\n")
@@ -403,6 +405,7 @@ if __name__ == '__main__':
         else:
             print(f"Error occurred: {result.stderr}")
 
+
     et = time.process_time()
     et_w = time.time()
 
@@ -411,3 +414,10 @@ if __name__ == '__main__':
     res_w = et_w - st_w
     print('[CPU time]', res, 'seconds')
     print('[Wall time]', res_w, 'seconds')
+
+# insight extraction
+    pairs_by_cluster = top_k_diverse_pairs_per_cluster(data, sol, k=5)
+    for lab, pairs in pairs_by_cluster.items():
+        print(f"Cluster {lab}:")
+        for score, i, j in pairs:
+            print(f"  score={score:.3f} pair=({i}, {j})")
