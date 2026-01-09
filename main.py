@@ -319,6 +319,8 @@ if __name__ == '__main__':
     elif args.dataset == "custom":
         features, data = load_custom(args.path, args.delimiter)
 
+    # we clone data before normalization for presenting insights
+    original_data=data.copy()
     data = normalize(data)
 
     k = int(args.k)
@@ -423,10 +425,10 @@ if __name__ == '__main__':
 #           print(f"  score={score:.3f} pair=({i}, {j})")
 
     top_k_diverse_pairs_per_cluster(
-        data,
-        sol,
-        k=5,
+        data=data,  # normalized
+        original_data=original_data,  # non-normalized
+        sol=sol,
         feature=features,
-        max_features=3   # show only 6 most discriminating features
+        k=5,
+        max_features=3
     )
-
