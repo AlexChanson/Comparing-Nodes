@@ -25,14 +25,23 @@ def load_iris(path="./sample_data/iris.csv"):
 def load_directors(path="./sample_data/Director_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
+    all = []
+    beforeValidation = []
     with open(path) as f:
         first_line = f.readline()
         features = first_line.strip().split(',')[1:]
         for line in f:
             line = line.strip()
             nodes.append([float('nan') if x == '' else float(x) for x in line.split(',')[1:]])
+            all.append([float('nan') if x == '' else float(x) for x in line.split(',')])
     print("LOADED Directors |D|=", len(features), " n=", len(nodes))
-    return features, np.asarray(nodes)
+    #return features, np.asarray(nodes)
+    with open("./sample_data/Director_beforeValidation.csv") as f:
+        first_line = f.readline()
+        for line in f:
+            line = line.strip()
+            beforeValidation.append([float('nan') if x == '' else float(x) for x in line.split(',')])
+    return beforeValidation, all, features, np.asarray(nodes)
 
 
 def load_actors(path="./sample_data/Actor_indicators_processed_nonulls.csv"):

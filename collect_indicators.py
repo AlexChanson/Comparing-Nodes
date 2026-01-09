@@ -1004,7 +1004,7 @@ def main(
                     )
                 # print('1 props:', time.time() - start_time)
 
-                # out join * and 1
+                # outer join * and 1
                 dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
 
                 # get in degrees of label
@@ -1016,6 +1016,10 @@ def main(
 
                 end_time = time.time()
                 indicatorsTimings = end_time - start_time
+
+                # Save to file indicators before validation (scaling, etc.)
+                outBeforeValidation = "sample_data/" + label + "_beforeValidation.csv"
+                dffinal.to_csv(outBeforeValidation, index=False)
 
                 # validation
                 print("Validating candidate indicators")

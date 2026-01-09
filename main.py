@@ -14,7 +14,7 @@ from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 from sklearn.metrics import silhouette_score
 
-from insightExtraction import top_k_diverse_pairs_per_cluster
+from insightExtraction import top_k_diverse_pairs_per_cluster_original_values_side_by_side
 from utility import *
 
 # from PrettyPrint import PrettyPrintTree
@@ -303,7 +303,7 @@ if __name__ == '__main__':
     elif args.dataset == "movies":
         features, data = load_movies()
     elif args.dataset == "directors":
-        features, data = load_directors()
+        beforeValidation, all, features, data = load_directors()
     elif args.dataset == "actors":
         features, data = load_actors()
     elif args.dataset == "city":
@@ -320,7 +320,9 @@ if __name__ == '__main__':
         features, data = load_custom(args.path, args.delimiter)
 
     # we clone data before normalization for presenting insights
-    original_data=data.copy()
+    # TODO for airport, movie or custom dataset, need to pass original dataset since the files contain already normalized data
+    #original_data=data.copy()
+    original_data=beforeValidation
     data = normalize(data)
 
     k = int(args.k)
@@ -424,11 +426,13 @@ if __name__ == '__main__':
 #        for score, i, j in pairs:
 #           print(f"  score={score:.3f} pair=({i}, {j})")
 
-    top_k_diverse_pairs_per_cluster(
-        data=data,  # normalized
-        original_data=original_data,  # non-normalized
+    top_k_diverse_pairs_per_cluster_original_values_side_by_side(
+        data=data,
         sol=sol,
         feature=features,
+        all_rows=all,
+        beforeValidation=beforeValidation,
         k=5,
-        max_features=3
+        max_features=12,  # show only 12 comparison features (largest diffs)
+        show_diff_row=True
     )
