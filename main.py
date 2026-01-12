@@ -16,7 +16,7 @@ from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 from sklearn.metrics import silhouette_score
 
-from insightExtraction import top_k_pairs_print_original_side_by_side_with_neo4j
+from insightExtraction import top_k_pairs_print_original_side_by_side_with_neo4j_and_cluster_stats
 from neo4j import Driver, GraphDatabase, basic_auth
 from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms
 from utility import *
@@ -308,7 +308,7 @@ if __name__ == '__main__':
     elif args.dataset == "airports":
         features, data = load_airports()
     elif args.dataset == "movies":
-        features, data = load_movies()
+        beforeValidation, all, features, data = load_movies()
     elif args.dataset == "directors":
         beforeValidation, all, features, data = load_directors()
     elif args.dataset == "actors":
@@ -437,17 +437,18 @@ if __name__ == '__main__':
     start_dbms(db_spec)
 
     with Neo4jConnector(database_config.uri, database_config.username, database_config.name) as db:
-        extra = ["name"]
-        top_k_pairs_print_original_side_by_side_with_neo4j(
+        extra = ["title"]
+        top_k_pairs_print_original_side_by_side_with_neo4j_and_cluster_stats(
             data=data,
             sol=sol,
             feature=features,
             all_rows=all,
             beforeValidation=beforeValidation,
             db=db,
-            node_label="Director",
-            extra_props=extra,
+            node_label="Movie",
+            extra_props=extra,  # whatever you want to display from Neo4j
             k=5,
-            max_features=12
+            max_features=12,
+            top_n_low_std_features=3
         )
     stop_current_dbms()
