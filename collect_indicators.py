@@ -983,7 +983,7 @@ def main(
                 dfm2m = aggregate_m2m_properties_for_label(
                     db.get_driver(),
                     label,
-                    agg="sum",
+                    agg="avg",
                     include_relationship_properties=True,
                     only_reltypes=manyToMany,
                     suffixes=suffixes_for_removal,

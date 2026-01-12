@@ -1,5 +1,6 @@
 import argparse
 import heapq
+import json
 import time
 from copy import copy
 from itertools import count
@@ -8,13 +9,16 @@ import numpy as np
 
 from b_and_b import *
 from clustering import *
+from collect_indicators import DatabaseConfig, Neo4jConnector
 from datasets import *
 from numpy.typing import NDArray
 from skfeature.function.similarity_based import lap_score
 from skfeature.utility import construct_W
 from sklearn.metrics import silhouette_score
 
-from insightExtraction import top_k_diverse_pairs_per_cluster_original_values_side_by_side
+from insightExtraction import top_k_pairs_print_original_side_by_side_with_neo4j
+from neo4j import Driver, GraphDatabase, basic_auth
+from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms
 from utility import *
 
 # from PrettyPrint import PrettyPrintTree
@@ -294,6 +298,9 @@ if __name__ == '__main__':
     )
     parser.add_argument("-p", "--path", default="", help="Path to custom dataset")
     parser.add_argument("-d", "--delimiter", default=",", help="Delimiter for custom dataset")
+
+    parser.add_argument('config')
+
     args = parser.parse_args()
 
     if args.dataset == "iris":
@@ -419,20 +426,28 @@ if __name__ == '__main__':
     print('[CPU time]', res, 'seconds')
     print('[Wall time]', res_w, 'seconds')
 
-# insight extraction
-#    pairs_by_cluster = top_k_diverse_pairs_per_cluster(data, sol, k=5)
-#    for lab, pairs in pairs_by_cluster.items():
-#        print(f"Cluster {lab}:")
-#        for score, i, j in pairs:
-#           print(f"  score={score:.3f} pair=({i}, {j})")
 
-    top_k_diverse_pairs_per_cluster_original_values_side_by_side(
-        data=data,
-        sol=sol,
-        feature=features,
-        all_rows=all,
-        beforeValidation=beforeValidation,
-        k=5,
-        max_features=12,  # show only 12 comparison features (largest diffs)
-        show_diff_row=True
-    )
+    # insight extraction
+    with open(args.config) as f:
+        database_config = json.load(f, object_hook=lambda x: DatabaseConfig(**x))
+    print("database: ", database_config.name)
+
+    stop_current_dbms()
+    db_spec = database_config.get_db_spec()
+    start_dbms(db_spec)
+
+    with Neo4jConnector(database_config.uri, database_config.username, database_config.name) as db:
+        extra = ["name"]
+        top_k_pairs_print_original_side_by_side_with_neo4j(
+            data=data,
+            sol=sol,
+            feature=features,
+            all_rows=all,
+            beforeValidation=beforeValidation,
+            db=db,
+            node_label="Director",
+            extra_props=extra,
+            k=5,
+            max_features=12
+        )
+    stop_current_dbms()
