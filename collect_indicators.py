@@ -307,9 +307,9 @@ class Neo4jConnector:
             rows.append(row)
 
         df = pd.DataFrame(rows).sort_values("rootId").reset_index(drop=True)
-        df.to_csv(out, index=False)
-        print(f"Saved {len(df)} rows to: {out}")
-        print("Columns:", ", ".join(df.columns))
+        #df.to_csv(out, index=False)
+        #print(f"Saved {len(df)} rows to: {out}")
+        #print("Columns:", ", ".join(df.columns))
         return df
 
     def getAvgPropByElem(self, label):
@@ -991,7 +991,7 @@ def main(
                 )
                 # print('* props:', time.time() - start_time)
 
-                # get 1 relationships properties for label (and save those to csv)
+                # get 1 relationships properties for label (no more saved to csv)
                 out = "sample_data/" + label + "_indicators.csv"
                 # do not send queries for edges if they do not have properties
                 if database_config.avg_properties_edge == float(0):

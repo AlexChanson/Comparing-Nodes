@@ -445,10 +445,16 @@ if __name__ == '__main__':
             all_rows=all,
             beforeValidation=beforeValidation,
             db=db,
-            node_label="Movie",
+            node_label="Director",
             extra_props=extra,  # whatever you want to display from Neo4j
             k=5,
             max_features=12,
-            top_n_low_std_features=3
+            top_n_low_std_features=3,
+            radar_dir='radars',
+            #radar_scale="none"
+            #radar_dir=None,
+            radar_use_percentiles=False,
+            radar_p_low=1.0,
+            radar_p_high=99.0
         )
     stop_current_dbms()

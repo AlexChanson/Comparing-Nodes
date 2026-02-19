@@ -1,6 +1,189 @@
 import re
 import numpy as np
 import pandas as pd
+import os
+import matplotlib.pyplot as plt
+
+
+
+def build_feature_ranges_from_beforeValidation(
+    beforeValidation,
+    feature_names,
+    *,
+    use_percentiles=False,
+    p_low=1.0,
+    p_high=99.0,
+    widen_if_constant=1.0
+):
+    """
+    Build per-feature (min,max) ranges from original data in beforeValidation.
+
+    Assumes:
+      - beforeValidation[:,0] is outid
+      - beforeValidation[:,1:] are the original feature values aligned with feature_names
+
+    Parameters
+    ----------
+    use_percentiles : bool
+        If True, use robust percentile bounds instead of min/max to avoid outliers.
+    p_low, p_high : float
+        Percentiles used if use_percentiles=True.
+    widen_if_constant : float
+        If a feature is constant (min==max), expand range to [v-widen, v+widen].
+
+    Returns
+    -------
+    dict[str, tuple(float,float)] mapping feature name -> (min,max)
+    """
+    bv = np.asarray(beforeValidation, dtype=float)
+    Xorig = bv[:, 1:]  # drop outid
+    feature_names = list(feature_names)
+
+    if Xorig.shape[1] != len(feature_names):
+        raise ValueError(
+            f"beforeValidation has {Xorig.shape[1]} feature columns but feature_names has {len(feature_names)}"
+        )
+
+    ranges = {}
+    for j, fname in enumerate(feature_names):
+        col = Xorig[:, j]
+        col = col[~np.isnan(col)]
+        if col.size == 0:
+            # fallback: arbitrary range so plotting doesn't crash
+            ranges[fname] = (0.0, 1.0)
+            continue
+
+        if use_percentiles:
+            mn = float(np.percentile(col, p_low))
+            mx = float(np.percentile(col, p_high))
+        else:
+            mn = float(np.min(col))
+            mx = float(np.max(col))
+
+        if not np.isfinite(mn) or not np.isfinite(mx):
+            ranges[fname] = (0.0, 1.0)
+            continue
+
+        if mx <= mn:
+            v = mn
+            ranges[fname] = (v - widen_if_constant, v + widen_if_constant)
+        else:
+            ranges[fname] = (mn, mx)
+
+    return ranges
+
+
+# ---------------------------
+# Radar chart helpers
+# ---------------------------
+def plot_pair_radar(
+    feature_names,
+    a_values,
+    b_values,
+    *,
+    feature_ranges,          # REQUIRED: dict feature -> (min,max)
+    a_label="A",
+    b_label="B",
+    title=None,
+    outpath=None,
+    color_a="tab:blue",
+    color_b="tab:orange",
+    annotate_values=True,
+    clip=True
+):
+    """
+    Plot A vs B on a radar chart using per-feature ranges, scaling each feature to [0,1].
+
+    Radar charts have a shared radial axis; per-feature ranges are applied by scaling
+    each dimension independently to [0,1] before plotting.
+
+    feature_ranges must come from beforeValidation (original values).
+    """
+    feats = list(feature_names)
+    a = np.asarray(a_values, dtype=float)
+    b = np.asarray(b_values, dtype=float)
+
+    if len(feats) == 0:
+        return
+    if a.shape[0] != len(feats) or b.shape[0] != len(feats):
+        raise ValueError("plot_pair_radar: feature_names and values must have the same length.")
+
+    a = np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
+    b = np.nan_to_num(b, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Build per-feature ranges list aligned with feats
+    ranges = []
+    for f in feats:
+        if f not in feature_ranges:
+            raise KeyError(f"Missing range for feature {f!r}. Build ranges from beforeValidation first.")
+        mn, mx = feature_ranges[f]
+        if mx <= mn:
+            mx = mn + 1.0
+        ranges.append((float(mn), float(mx)))
+
+    # Scale to [0,1]
+    a_scaled = np.empty_like(a, dtype=float)
+    b_scaled = np.empty_like(b, dtype=float)
+    for i, (mn, mx) in enumerate(ranges):
+        a_scaled[i] = (a[i] - mn) / (mx - mn)
+        b_scaled[i] = (b[i] - mn) / (mx - mn)
+
+    if clip:
+        a_scaled = np.clip(a_scaled, 0.0, 1.0)
+        b_scaled = np.clip(b_scaled, 0.0, 1.0)
+
+    # Close loop
+    N = len(feats)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+    a_plot = np.concatenate([a_scaled, a_scaled[:1]])
+    b_plot = np.concatenate([b_scaled, b_scaled[:1]])
+
+    fig = plt.figure(figsize=(9, 6.5))
+    ax = plt.subplot(111, polar=True)
+
+    ax.plot(angles, a_plot, linewidth=2, label=a_label, color=color_a)
+    ax.fill(angles, a_plot, alpha=0.10, color=color_a)
+
+    ax.plot(angles, b_plot, linewidth=2, label=b_label, color=color_b)
+    ax.fill(angles, b_plot, alpha=0.10, color=color_b)
+
+    ax.set_xticks(angles[:-1])
+
+    # Label each axis with feature name + original range
+    xticklabels = []
+    for f, (mn, mx) in zip(feats, ranges):
+        xticklabels.append(f"{f}\n[{mn:g}, {mx:g}]")
+    ax.set_xticklabels(xticklabels, fontsize=8)
+
+    ax.set_ylim(0, 1.0)
+    ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+    ax.set_yticklabels(["0%", "25%", "50%", "75%", "100%"], fontsize=8)
+
+    if title:
+        ax.set_title(title + "\n(per-feature ranges from beforeValidation)", pad=20, fontsize=11)
+    else:
+        ax.set_title("Pair radar (per-feature ranges from beforeValidation)", pad=20, fontsize=11)
+
+    ax.legend(loc="upper right", bbox_to_anchor=(1.25, 1.10))
+    ax.grid(True)
+
+    # Annotate original values
+    if annotate_values:
+        for i, ang in enumerate(angles[:-1]):
+            r = max(a_scaled[i], b_scaled[i]) + 0.07
+            r = min(r, 1.08)
+            ax.text(ang, r, f"A:{a[i]:g}\nB:{b[i]:g}", fontsize=7, ha="center", va="center")
+
+    fig.tight_layout()
+
+    if outpath:
+        os.makedirs(os.path.dirname(outpath), exist_ok=True)
+        fig.savefig(outpath, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+    else:
+        plt.show()
+
 
 # ---------------------------
 # Neo4j helpers
@@ -127,7 +310,12 @@ def top_k_pairs_print_original_side_by_side_with_neo4j_and_cluster_stats(
     max_features=None,
     float_fmt="{:.4f}",
     show_diff_row=True,
-    top_n_low_std_features=3
+    top_n_low_std_features=3,
+    radar_dir=None,
+    #radar_scale="pair_minmax",
+    radar_use_percentiles=False,
+    radar_p_low=1.0,
+    radar_p_high=99.0,
 ):
     """
     Adds, per cluster:
@@ -141,6 +329,16 @@ def top_k_pairs_print_original_side_by_side_with_neo4j_and_cluster_stats(
     feat_partition = np.asarray(sol.sol).ravel()
 
     feature = np.asarray(feature)
+    # Build global feature ranges from ORIGINAL values (beforeValidation)
+    # This creates a per-feature min/max (or percentile) used for radar scaling.
+    feature_ranges = build_feature_ranges_from_beforeValidation(
+        beforeValidation=beforeValidation,
+        feature_names=feature,
+        use_percentiles=radar_use_percentiles,
+        p_low=radar_p_low,
+        p_high=radar_p_high,
+    )
+
     all_rows = np.asarray(all_rows, dtype=float)
     beforeValidation = np.asarray(beforeValidation, dtype=float)
 
@@ -299,6 +497,24 @@ def top_k_pairs_print_original_side_by_side_with_neo4j_and_cluster_stats(
                 "display.float_format", lambda x: float_fmt.format(x)
             ):
                 print(df)
+                # ---- Radar chart for this pair (A vs B) ----
+                if radar_dir is not None:
+                    fname = f"cluster_{lab}_pair_{rank}_A_{oid_i}_B_{oid_j}.png"
+                    outpath = os.path.join(radar_dir, fname)
+
+                    title = f"Cluster {lab} | Pair #{rank}\nA: {rowA}\nB: {rowB}"
+
+                    plot_pair_radar(
+                        feature_names=list(cols),
+                        a_values=xi_show,
+                        b_values=xj_show,
+                        feature_ranges=feature_ranges,
+                        a_label=f"A ({oid_i})",
+                        b_label=f"B ({oid_j})",
+                        title=title,
+                        outpath=outpath,
+                        annotate_values=True
+                    )
 
             if max_features is not None and max_features < diff_p.size:
                 hidden_orig_sum = float(np.abs(xi_orig - xj_orig).sum() - np.abs(xi_show - xj_show).sum())
