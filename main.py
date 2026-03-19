@@ -328,8 +328,8 @@ if __name__ == '__main__':
 
     # we clone data before normalization for presenting insights
     # TODO for airport, movie or custom dataset, need to pass original dataset since the files contain already normalized data
-    #original_data=data.copy()
-    original_data=beforeValidation
+    original_data=data.copy()
+    #original_data=beforeValidation
     data = normalize(data)
 
     k = int(args.k)
@@ -380,17 +380,21 @@ if __name__ == '__main__':
 
         if "darwin" in platform.system().lower():
             binary_path = "./bin/backend_appl"
+        # Windows        
+        elif "windows" in platform.system().lower(): 
+            print("Running on Windows, using Windows binary")
+            binary_path = ".\\bin\\comparing_nodes_backend.exe"
         else:
             print("System not supported")
             exit(2)
         print(binary_path)
         #write normalized data to disk
-        with open("/tmp/cmp_nodes_temp.csv", "w") as f:
+        with open("./tmp/cmp_nodes_temp.csv", "w") as f:
             f.write(",".join(map(str, features)) + "\n")
             for i in range(len(data)):
                 f.write(",".join(map(str, data[i])) + "\n")
 
-        result = subprocess.run([binary_path, "--k", str(k), "--dataset", "/tmp/cmp_nodes_temp.csv"],capture_output=True,text=True)
+        result = subprocess.run([binary_path, "--k", str(k), "--dataset", "./tmp/cmp_nodes_temp.csv"],capture_output=True,text=True)
 
         if result.returncode == 0:
             # Get output as a list of strings
@@ -414,7 +418,7 @@ if __name__ == '__main__':
             print("[best solution]:", sol)
             print("[Silhouette]", silhouette_score(data[:, sol.derive_clustering_mask()], sol.membership))
         else:
-            print(f"Error occurred: {result.stderr}")
+            print(f"Error occurred: {result}")
 
 
     et = time.process_time()
@@ -426,7 +430,7 @@ if __name__ == '__main__':
     print('[CPU time]', res, 'seconds')
     print('[Wall time]', res_w, 'seconds')
 
-
+    """
     # insight extraction
     with open(args.config) as f:
         database_config = json.load(f, object_hook=lambda x: DatabaseConfig(**x))
@@ -458,3 +462,4 @@ if __name__ == '__main__':
             radar_p_high=99.0
         )
     stop_current_dbms()
+    """

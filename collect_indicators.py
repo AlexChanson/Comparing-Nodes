@@ -16,7 +16,7 @@ from contextualization import schema_hops_from_label, weight_df_by_schema_hops
 from inDegrees import in_degree_by_relationship_type
 from many2many import aggregate_m2m_properties_for_label
 from neo4j import Driver, GraphDatabase, basic_auth
-from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms
+from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms, wait_for_bolt
 from utility import outer_join_features
 from validation import drop_columns_by_suffix_with_report, export, process_dataframe, remove_correlated_columns
 
@@ -27,79 +27,44 @@ NUMERIC_TYPES = [
     "Number",
     "Long",
     "Double",
-    # (If you want numeric lists too, add: "LIST OF INTEGER", "LIST OF FLOAT", etc.)
 ]
-
 
 class Neo4jConnector:
     """A simple Neo4j connection manager and query runner."""
 
     def __init__(self, uri: str, user: str, password: str, encrypted: bool = False, **driver_kwargs: Any) -> None:
-        """
-        Initialize the driver.
-
-        :param uri: Neo4j URI, e.g. "bolt://localhost:7687" or "neo4j+s://<host>"
-        :param user: Username
-        :param password: Password
-        :param encrypted: Whether to use encryption (defaults to False)
-        :param driver_kwargs: Any additional kwargs passed to GraphDatabase.driver()
-        """
         self._driver = GraphDatabase.driver(uri, auth=basic_auth(user, password), encrypted=encrypted, **driver_kwargs)
 
     def get_driver(self) -> Driver:
         return self._driver
 
     def close(self) -> None:
-        """Close the underlying driver connection."""
         self._driver.close()
 
     def execute_query(
         self, query: str, parameters: Optional[Dict[str, Any]] = None, database: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Run a Cypher query and return a list of records as dictionaries.
-
-        :param query: Cypher query string
-        :param parameters: Query parameters dict
-        :param database: Optional database name (for multi‐db setups)
-        :return: List of record dictionaries
-        """
         with self._driver.session(database=database) as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
 
     def __enter__(self) -> "Neo4jConnector":
-        """Enable use as a context manager."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Ensure the driver is closed on exit."""
         self.close()
 
     def backtick_escape(self, label: str) -> str:
-        """Escape backticks in a label so it can be safely backticked in Cypher."""
         return label.replace("`", "``")
 
     def detect_relationship_cardinalities(self):
-        """
-        Detects instance-based relationship cardinalities (one-to-one, one-to-many,
-        many-to-one, many-to-many) per (relType, startLabelSet, endLabelSet).
-
-        Returns:
-            List of dict rows with keys:
-            ['relType','startLabels','endLabels','startPopulation','endPopulation',
-             'minOut','maxOut','minIn','maxIn','cardinality']
-
-        """
         query = """
-        // Detect instance-based cardinalities: one-to-one, one-to-many, many-to-one, many-to-many
         MATCH (s)-[r]->(t)
         WITH type(r) AS relType,
              apoc.text.join(labels(s),'|')  AS startLabels,
              apoc.text.join(labels(t),'|')  AS endLabels
         WITH DISTINCT relType, startLabels, endLabels
 
-        // For ALL start nodes with this label set, count outgoing edges of relType to endLabels
         CALL {
           WITH relType, startLabels, endLabels
           MATCH (sx)
@@ -114,7 +79,6 @@ class Neo4jConnector:
             count(sx)   AS startPopulation
         }
 
-        // For ALL end nodes with this label set, count incoming edges of relType from startLabels
         CALL {
           WITH relType, startLabels, endLabels
           MATCH (ty)
@@ -146,31 +110,18 @@ class Neo4jConnector:
         """
 
         result = self.execute_query(query)
-        # return result
         return [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-one'], [
             rec['relType'] for rec in result if rec['cardinality'] == 'many-to-many'
         ]
 
     def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep) -> str:
-        """
-        Warning initially not on schema, was : all(rel...where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
-        Build the Cypher query by inlining the label (labels can't be parameterized).
-        Traverses only along steps where the current node has exactly one outgoing
-        relationship of that type (functional chain).
-        Keeps ONLY numeric properties via apoc.meta.cypher.type.
-        """
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
         props = to_keep
 
-        #       suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
         if to_keep == []:
-            # Note:
-            # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
-            # - Properties are prefixed with the node's (first) label to avoid collisions.
-            # AND NOT k =~ '{suffixRegex}' in second where
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
@@ -190,10 +141,6 @@ class Neo4jConnector:
             RETURN id(n) AS rootId,
                    apoc.map.mergeList(maps) AS mergedNumericProperties
             """
-            # If you want numeric lists as well, replace the WHERE line by:
-            # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
-            #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
-            #                                       "LIST OF Long","LIST OF Double"]
 
         return f"""
                         MATCH (n:`{lbl}`)
@@ -216,25 +163,13 @@ class Neo4jConnector:
                         """
 
     def build_cypher_edges(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep) -> str:
-        """
-        warning, initially  not on schema, was : all(rel ... where apoc.node.degree.out(startNode(rel), apoc.rel.type(rel)) = 1)
-        Build the Cypher query by inlining the label (labels can't be parameterized).
-        Traverses only along steps where the current node has exactly one outgoing
-        relationship of that type (functional chain).
-        Keeps ONLY numeric properties via apoc.meta.cypher.type.
-        """
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
         props = to_keep
 
-        #        suffixRegex = '(' + '|'.join(map(re.escape, suffixes)) + r')$'
         suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
 
         if to_keep == []:
-            # Note:
-            # - Direction is OUTGOING (child -> parent). Flip to <-*0..- if your model is opposite.
-            # - Properties are prefixed with the node's (first) label to avoid collisions.
-            # AND NOT k =~ '{suffixRegex}'  in second where
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
@@ -242,11 +177,8 @@ class Neo4jConnector:
               all(rel IN relationships(p) WHERE
                    type(rel) in {many2one})
             WITH n,
-                // Gather all relationships from all such paths, then deduplicate
             apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
             WITH n,
-                 // Build one small map per relationship, keeping only numeric props.
-                // Keys are prefixed with the relationship type to reduce collisions.
             [r IN rels |
             apoc.map.fromPairs(
               [k IN keys(r)
@@ -258,12 +190,8 @@ class Neo4jConnector:
             WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
             WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
             RETURN id(n) AS rootId,
-           mergedNumericProperties;
+            mergedNumericProperties;
             """
-            # If you want numeric lists as well, replace the WHERE line by:
-            # WHERE apoc.meta.cypher.type(x[k]) IN ["INTEGER","FLOAT","Number","Long","Double",
-            #                                       "LIST OF INTEGER","LIST OF FLOAT","LIST OF Number",
-            #                                       "LIST OF Long","LIST OF Double"]
         return f"""
                         MATCH (n:`{lbl}`)
                         OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
@@ -271,11 +199,8 @@ class Neo4jConnector:
                           all(rel IN relationships(p) WHERE
                                type(rel) in {many2one})
                         WITH n,
-                            // Gather all relationships from all such paths, then deduplicate
                         apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
                         WITH n,
-                             // Build one small map per relationship, keeping only numeric props.
-                            // Keys are prefixed with the relationship type to reduce collisions.
                         [r IN rels |
                         apoc.map.fromPairs(
                           [k IN {props}
@@ -287,7 +212,7 @@ class Neo4jConnector:
                         WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
                         WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
                         RETURN id(n) AS rootId,
-                       mergedNumericProperties;
+                        mergedNumericProperties;
                         """
 
     def fetch_as_dataframe(
@@ -307,9 +232,6 @@ class Neo4jConnector:
             rows.append(row)
 
         df = pd.DataFrame(rows).sort_values("rootId").reset_index(drop=True)
-        #df.to_csv(out, index=False)
-        #print(f"Saved {len(df)} rows to: {out}")
-        #print("Columns:", ", ".join(df.columns))
         return df
 
     def getAvgPropByElem(self, label):
@@ -332,44 +254,23 @@ class Neo4jConnector:
         include_relationships: bool = True,
         dry_run: bool = False,
     ) -> Dict[str, List[Tuple[str, str]]]:
-        """
-        Create (or ensure) range indexes for all numeric properties across the graph,
-        for both nodes and relationships (Neo4j 5+).
-
-        Args:
-            session: existing neo4j.Session (e.g., driver.session(database="neo4j"))
-            numeric_types: APOC meta types considered numeric.
-            drop_suffixes: suffixes to exclude (e.g., ["_id", "_code", "latitude"]).
-            include_nodes: whether to create indexes on node properties.
-            include_relationships: whether to create indexes on relationship properties.
-            dry_run: if True, only return planned indexes; no CREATE is executed.
-
-        Returns:
-            {"node": [(label, property), ...], "relationship": [(rel_type, property), ...]}
-            listing what was created (or would be created if dry_run=True).
-
-        """
         session = self._driver.session()
-        # Build one regex to drop unwanted suffixes (match at end of string).
         drop_re = ""
         if drop_suffixes:
             safe = [re.escape(s) for s in drop_suffixes]
             drop_re = r"(?:{})$".format("|".join(safe))
 
         def _normalize_name(name: str) -> str:
-            # Remove leading ':' if present and unwrap surrounding backticks
             s = name.lstrip(":")
             if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
                 s = s[1:-1]
             return s
 
         def qident(name: str) -> str:
-            # Safe backtick-quoting for identifiers
             return "`" + name.replace("`", "``") + "`"
 
         created = {"node": [], "relationship": []}
 
-        # -------- Nodes --------
         if include_nodes:
             meta_nodes = """
             CALL apoc.meta.nodeTypeProperties() 
@@ -395,7 +296,6 @@ class Neo4jConnector:
                     session.run(cypher)
                     created["node"].append((label, prop))
 
-        # -------- Relationships --------
         if include_relationships:
             meta_rels = """
             CALL apoc.meta.relTypeProperties()
@@ -429,27 +329,19 @@ class Neo4jConnector:
         numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
         drop_suffixes: Optional[Iterable[str]] = None,
     ) -> List[Dict]:
-        """
-        Return numeric properties on nodes *and* relationships with non-null ratio >= min_nonnull_ratio.
-        Output rows: kind ('node'|'relationship'), label/relType, property, counts, ratio.
-        """
-        # End-anchored regex for suffix exclusion
         drop_re = ""
         if drop_suffixes:
             safe = [re.escape(s) for s in drop_suffixes]
             drop_re = r"(?:{})$".format("|".join(safe))
 
         cypher = """
-        // ===================== NODES =====================
         CALL apoc.meta.nodeTypeProperties()
         YIELD nodeType, propertyName, propertyTypes
         WITH
-          // strip leading ':' if present
           CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
           propertyName AS property,
           propertyTypes
         WITH
-          // strip surrounding backticks if present
           CASE
             WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
               THEN substring(s1,1,size(s1)-2)
@@ -459,7 +351,6 @@ class Neo4jConnector:
           propertyTypes
         WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
           AND ($dropRe = '' OR NOT property =~ $dropRe)
-        // count totals and non-nulls without dynamic pattern: use labels(n) and dynamic prop access
         MATCH (n)
         WHERE cleanLabel IN labels(n)
         WITH
@@ -476,11 +367,9 @@ class Neo4jConnector:
 
         UNION ALL
 
-        // ===================== RELATIONSHIPS =====================
         CALL apoc.meta.relTypeProperties()
         YIELD relType, propertyName, propertyTypes
         WITH
-          // remove surrounding backticks and any accidental leading ':'
             CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
           propertyName AS property,
           propertyTypes
@@ -493,7 +382,6 @@ class Neo4jConnector:
           propertyTypes
         WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
           AND ($dropRe = '' OR NOT property =~ $dropRe)
-        // count totals and non-nulls without dynamic pattern: use type(r) and dynamic prop access
         MATCH ()-[r]-()
         WHERE type(r) = cleanType
         WITH
@@ -508,7 +396,6 @@ class Neo4jConnector:
         WHERE nonNullRatio >= $minNonNullRatio
         RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
 
-        // consistent final ordering
         ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
         """
 
@@ -519,7 +406,6 @@ class Neo4jConnector:
             minNonNullRatio=float(min_nonnull_ratio),
             dropRe=drop_re,
         )
-        # return [dict(r) for r in recs]
         return [r["property"] for r in recs]
 
     def numeric_properties_with_min_null_ratio(
@@ -528,27 +414,19 @@ class Neo4jConnector:
         numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
         drop_suffixes: Optional[Iterable[str]] = None,
     ) -> List[Dict]:
-        """
-        Return numeric properties on nodes *and* relationships with non-null ratio >= min_nonnull_ratio.
-        Output rows: kind ('node'|'relationship'), label/relType, property, counts, ratio.
-        """
-        # End-anchored regex for suffix exclusion
         drop_re = ""
         if drop_suffixes:
             safe = [re.escape(s) for s in drop_suffixes]
             drop_re = r"(?:{})$".format("|".join(safe))
 
         cypher = """
-        // ===================== NODES =====================
         CALL apoc.meta.nodeTypeProperties()
         YIELD nodeType, propertyName, propertyTypes
         WITH
-          // strip leading ':' if present
           CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
           propertyName AS property,
           propertyTypes
         WITH
-          // strip surrounding backticks if present
           CASE
             WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
               THEN substring(s1,1,size(s1)-2)
@@ -558,7 +436,6 @@ class Neo4jConnector:
           propertyTypes
         WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
           AND ($dropRe = '' OR NOT property =~ $dropRe)
-        // count totals and non-nulls without dynamic pattern: use labels(n) and dynamic prop access
         MATCH (n)
         WHERE cleanLabel IN labels(n)
         WITH
@@ -575,11 +452,9 @@ class Neo4jConnector:
 
         UNION ALL
 
-        // ===================== RELATIONSHIPS =====================
         CALL apoc.meta.relTypeProperties()
         YIELD relType, propertyName, propertyTypes
         WITH
-          // remove surrounding backticks and any accidental leading ':'
             CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
           propertyName AS property,
           propertyTypes
@@ -592,7 +467,6 @@ class Neo4jConnector:
           propertyTypes
         WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
           AND ($dropRe = '' OR NOT property =~ $dropRe)
-        // count totals and non-nulls without dynamic pattern: use type(r) and dynamic prop access
         MATCH ()-[r]-()
         WHERE type(r) = cleanType
         WITH
@@ -607,7 +481,6 @@ class Neo4jConnector:
         WHERE nonNullRatio < $minNonNullRatio
         RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
 
-        // consistent final ordering
         ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
         """
 
@@ -618,7 +491,6 @@ class Neo4jConnector:
             minNonNullRatio=float(min_nonnull_ratio),
             dropRe=drop_re,
         )
-        # return [dict(r) for r in recs]
         return [r["property"] for r in recs]
 
     def drop_indexes_on_numeric_properties(
@@ -629,20 +501,6 @@ class Neo4jConnector:
         include_relationships: bool = True,
         dry_run: bool = False,
     ) -> Dict[str, List[str]]:
-        """
-        Drop (if they exist) all Neo4j property indexes that index only numeric properties,
-        for nodes and/or relationships.
-
-        - Uses APOC store metadata to decide what is numeric (no graph scan).
-        - Skips indexes owned by constraints.
-        - Only drops RANGE/BTREE property indexes (not FULLTEXT/LOOKUP/TEXT/POINT).
-
-        Returns:
-            {"node": [index_name, ...], "relationship": [index_name, ...]}
-            listing the indexes that were (or would be, in dry_run) dropped.
-
-        """
-        # Build optional end-anchored regex to exclude suffixes from "numeric" set
         drop_re = ""
         if drop_suffixes:
             drop_re = r"(?:{})$".format("|".join(re.escape(s) for s in drop_suffixes))
@@ -650,7 +508,6 @@ class Neo4jConnector:
         def qident(name: str) -> str:
             return "`" + name.replace("`", "``") + "`"
 
-        # --- 1) Collect numeric properties per node label / rel type ---
         numeric_node_props: Dict[str, Set[str]] = {}
         numeric_rel_props: Dict[str, Set[str]] = {}
 
@@ -701,11 +558,9 @@ class Neo4jConnector:
             for r in rows:
                 numeric_rel_props.setdefault(r["rtype"], set()).add(r["property"])
 
-        # Quick outs if nothing numeric found
         if not numeric_node_props and not numeric_rel_props:
             return {"node": [], "relationship": []}
 
-        # --- 2) List existing indexes ---
         index_rows = session.run(
             """
             SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, owningConstraint
@@ -716,17 +571,16 @@ class Neo4jConnector:
         droppable_nodes: List[str] = []
         droppable_rels: List[str] = []
 
-        ALLOWED_TYPES = {"RANGE", "BTREE"}  # property indexes we may drop
+        ALLOWED_TYPES = {"RANGE", "BTREE"}
 
         for r in index_rows:
             name = r["name"]
-            idx_type = r["type"]  # e.g., RANGE, FULLTEXT, LOOKUP, POINT, TEXT
-            entity = r["entityType"]  # NODE or RELATIONSHIP
+            idx_type = r["type"]
+            entity = r["entityType"]
             labels_or_types = r["labelsOrTypes"] or []
             props = r["properties"] or []
-            owning = r["owningConstraint"]  # non-null => tied to a constraint
+            owning = r["owningConstraint"]
 
-            # Skip constraint-owned or non-supported types
             if owning is not None:
                 continue
             if idx_type not in ALLOWED_TYPES:
@@ -734,12 +588,10 @@ class Neo4jConnector:
             if not labels_or_types or not props:
                 continue
 
-            # We only handle standard property indexes (single label/type)
             label_or_type = labels_or_types[0]
 
             if entity == "NODE" and include_nodes:
                 numeric_set = numeric_node_props.get(label_or_type, set())
-                # drop only if ALL properties in the index are numeric for this label
                 if numeric_set and all(p in numeric_set for p in props):
                     droppable_nodes.append(name)
 
@@ -748,7 +600,6 @@ class Neo4jConnector:
                 if numeric_set and all(p in numeric_set for p in props):
                     droppable_rels.append(name)
 
-        # --- 3) Drop them (or dry-run) ---
         dropped = {"node": [], "relationship": []}
 
         for name in droppable_nodes:
@@ -768,36 +619,8 @@ class Neo4jConnector:
         return dropped
 
     def count_numeric_properties(self):
-        """
-        Count the total number of numeric properties in all nodes and relationships
-        of a Neo4j database.
-
-        Parameters
-        ----------
-        uri : str
-            Bolt URI of the database, e.g., "bolt://localhost:7687"
-        user : str
-            Username for authentication
-        password : str
-            Password for authentication
-        db : str
-            Database name (default: "neo4j")
-
-        Returns
-        -------
-        dict
-            {
-              "nodes_numeric_props": int,
-              "rels_numeric_props": int,
-              "total_numeric_props": int
-            }
-
-        """
         with self._driver.session() as session:
-            # Cypher list of numeric property types
             numeric_types = ["INTEGER", "FLOAT", "DOUBLE", "LONG"]
-
-            # --- Count numeric properties in nodes ---
             cypher = """
             CALL {
                 MATCH (n)
@@ -831,7 +654,6 @@ class DatabaseConfig:
     name: str
     home: str
 
-    # FIXME: This should be computed automatically
     labels: Set[str]
     number_of_node: int
     number_of_edge: int
@@ -864,10 +686,30 @@ def main(
         remove_nulls: bool = True,
         create_index: bool = True,
         drop_index: bool = False,
+        agg_config: Optional[str] = None,
 ) -> None:
+    
+    agg_mapping = {}
+    if agg_config:
+        import csv
+        print(f"Chargement des règles d'agrégation depuis {agg_config}...")
+        with open(agg_config, mode='r', encoding='utf-8') as f:
+            # On suppose un CSV simple: attribut,fonction (ex: age,max)
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    attribut = row[0].strip()
+                    fonction = row[1].strip().lower()
+                    agg_mapping[attribut] = fonction
+
     current_time = time.localtime()
-    formatted_time = time.strftime("%d-%m-%y:%H:%M:%S", current_time)
+    
+    # -------------------------------------------------------------
+    # WINDOWS FIX: Using underscores and dashes instead of colons!
+    # -------------------------------------------------------------
+    formatted_time = time.strftime("%d-%m-%y_%H-%M-%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
+    
     column_names = [
         'run',
         'pushdown',
@@ -887,7 +729,6 @@ def main(
     ]
     dfresults = pd.DataFrame(columns=column_names)
 
-    # Always drop index on create
     if create_index:
         drop_index = True
 
@@ -896,21 +737,24 @@ def main(
 
         stop_current_dbms()
         db_spec = database_config.get_db_spec()
+        print(db_spec)
         start_dbms(db_spec)
+        
+        # -------------------------------------------------------------
+        # WAIT FOR BOLT FIX: Gives Neo4j time to boot up before logging in
+        # -------------------------------------------------------------
+        wait_for_bolt(db_spec.bolt_uri, db_spec.user, db_spec.password, db_spec.start_timeout)
 
-        with Neo4jConnector(database_config.uri, database_config.username, database_config.name) as db:
-            # counts the number of numeric properties
+        with Neo4jConnector(database_config.uri, database_config.username, database_config.password) as db:
             resprop = db.count_numeric_properties()
-            # drop index
             if drop_index:
                 res = db.drop_indexes_on_numeric_properties(
                     numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=[],  # optional
+                    drop_suffixes=[],
                     include_nodes=True,
                     include_relationships=True,
-                    dry_run=False,  # set True to preview
+                    dry_run=False,
                 )
-            # create indices
             if create_index:
                 print("Indexing numerical properties")
                 start_time = time.time()
@@ -919,7 +763,7 @@ def main(
                     drop_suffixes=unwanted_suffixes,
                     include_nodes=True,
                     include_relationships=True,
-                    dry_run=False,  # set True to preview without creating
+                    dry_run=False,
                 )
                 end_time = time.time()
                 timings_indexes = end_time - start_time
@@ -928,7 +772,6 @@ def main(
             else:
                 timings_indexes = 0
 
-            # finds relationship cardinalities
             print("Finding cardinalities")
             start_time = time.time()
             manyToOne, manyToMany = db.detect_relationship_cardinalities()
@@ -936,17 +779,13 @@ def main(
             timings_cardinalities = end_time - start_time
 
             if pushdown:
-                # finding properties with acceptable density
                 start_time = time.time()
                 props = db.numeric_properties_with_min_nonnull_ratio(
                     min_nonnull_ratio=1 - null_threshold,
                     numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=unwanted_suffixes,  # optional
+                    drop_suffixes=unwanted_suffixes,
                 )
-                # print('time nulls:', time.time() - start_time)
-                # suffixes_for_removal = unwanted_suffixes + props
                 suffixes_for_removal = []
-                # to_keep=props
                 to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
                 print("number of properties to keep:", len(to_keep))
                 ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
@@ -956,44 +795,38 @@ def main(
                 props = db.numeric_properties_with_min_nonnull_ratio(
                     min_nonnull_ratio=1 - null_threshold,
                     numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=unwanted_suffixes,  # optional
+                    drop_suffixes=unwanted_suffixes,
                 )
                 to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
                 ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                print("min null ratio for validation: ", 1 - null_threshold),
                 toPassForValidation = db.numeric_properties_with_min_null_ratio(
                     min_nonnull_ratio=1 - null_threshold,
                     numeric_types=("Long", "Double", "Float", "Integer"),
-                    drop_suffixes=unwanted_suffixes,  # optional
+                    drop_suffixes=unwanted_suffixes,
                 )
-                # ratio_dropped = 100*len(toPassForValidation) / resprop
                 suffixes_for_removal = []
-                to_keep = []  # no pushdown
+                to_keep = []
                 timings_density = 0
             timings_preprocessing = timings_indexes + timings_density
 
             for label in database_config.labels:
                 print("Label: ", label)
 
-                # collect candidate indicators
                 print("Collecting candidate indicators")
                 start_time = time.time()
 
-                # get context
-                # get * relationships properties for label
                 dfm2m = aggregate_m2m_properties_for_label(
                     db.get_driver(),
                     label,
-                    agg="avg",
+                    agg=agg_mapping if agg_mapping else "avg",
                     include_relationship_properties=True,
                     only_reltypes=manyToMany,
                     suffixes=suffixes_for_removal,
                     to_keep=to_keep,
                 )
-                # print('* props:', time.time() - start_time)
 
-                # get 1 relationships properties for label (no more saved to csv)
                 out = "sample_data/" + label + "_indicators.csv"
-                # do not send queries for edges if they do not have properties
                 if database_config.avg_properties_edge == float(0):
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep
@@ -1002,27 +835,25 @@ def main(
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep
                     )
-                # print('1 props:', time.time() - start_time)
 
-                # outer join * and 1
                 dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
-
-                # get in degrees of label
                 dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
-                # print('degrees:', time.time() - start_time)
-
-                # then outer join with dftemp
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
 
                 end_time = time.time()
                 indicatorsTimings = end_time - start_time
 
-                # Save to file indicators before validation (scaling, etc.)
                 outBeforeValidation = "sample_data/" + label + "_beforeValidation.csv"
                 dffinal.to_csv(outBeforeValidation, index=False)
 
-                # validation
                 print("Validating candidate indicators")
+
+                # -------------------------------------------------------------
+                # EMPTY DATAFRAME FIX: Do not crash if a label yields zero records
+                # -------------------------------------------------------------
+                if dffinal.empty or len(dffinal.columns) == 0:
+                    print(f"No data found for {label}. Skipping...")
+                    continue
 
                 if pushdown:
                     suffixes_unwanted = []
@@ -1030,15 +861,19 @@ def main(
                     suffixes_unwanted = unwanted_suffixes + toPassForValidation
 
                 start_time = time.time()
-                # first remove unwanted indicators
+                
+                # -------------------------------------------------------------
+                # PANDAS DECIMAL CASTING FIX: Allows integers to take scaled float values
+                # -------------------------------------------------------------
                 if not pushdown:
                     dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
-                # second remove correlated indicators
                 dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
-                # then check for variance and nulls, and scale
+                
+                int_cols = dffinal.select_dtypes(include=['int64', 'int32']).columns
+                dffinal[int_cols] = dffinal[int_cols].astype(float)
+                
                 keep, report = process_dataframe(dffinal, null_threshold, distinct_low, distinct_high, pushdown)
 
-                # union reportUW, reportCorr and report
                 if not pushdown:
                     report = pd.concat([report, reportUW, reportCorr], axis=0)
                 else:
@@ -1047,12 +882,10 @@ def main(
                 processedIndicators = "sample_data/" + label + "_indicators_processed.csv"
                 processingReport = "reports/" + label + "_indicators_processed.csv"
 
-                # if we remove lines with at least one null
                 if remove_nulls:
                     keep = utility.remove_rows_with_nulls(keep)
                     processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
 
-                # contextualization
                 dist = schema_hops_from_label(
                     db.get_driver(), label, include_relationship_types=True, directed=False
                 )
@@ -1063,20 +896,12 @@ def main(
                 end_time = time.time()
                 validationTimings = end_time - start_time
 
-                # call laplacian heuristics on data
-                # start_time = time.time()
-                # partition=score(processedIndicators)
-                # partition={}
-                # end_time = time.time()
-                # timingsPartition = end_time - start_time
                 timings_total = (
                     indicatorsTimings + validationTimings + timings_preprocessing + timings_cardinalities
                 )
 
-                # computes avg numerical properties for node type label
                 avgprop = db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
 
-                # save to result dataframe
                 dfresults.loc[len(dfresults)] = [
                     run,
                     pushdown,
@@ -1099,7 +924,6 @@ def main(
         stop_dbms(db_spec)
 
     dfresults.to_csv(fileResults, mode='a', header=True)
-    # to average results by labels
     out, latex = averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(
         csv_path=fileResults,
         label_col="label",
@@ -1109,18 +933,11 @@ def main(
     )
     print("\n===== LaTeX Preview =====\n")
     print(latex)
-    # to analyze correlations in the result file
     analyzeIndicatorDevisingTimes.main(Path('reports/averaged_time_by_label.csv'), Path('reports'))
-
-    # return  db_name, label, keep.shape[1] - 1, len(keep), timings_preprocessing, timings_cardinalities, indicatorsTimings, validationTimings, timings_total, ratio_dropped
     return dfresults
-
 
 def testPushdown(nbRuns) -> None:
     fileResults = 'reports/results_test_pushdown.csv'
-    # column_names = ['run', 'pushdown', 'null_ratio', 'database', 'label', 'indicators#', 'nodes#',
-    #                'time_Preprocessing', 'time_Cardinalities', 'time_Indicators', 'time_Validation', 'time_total',
-    #                'ratio_prop_dropped']
     column_names = [
         'run',
         'pushdown',
@@ -1142,10 +959,7 @@ def testPushdown(nbRuns) -> None:
     for run in range(nbRuns):
         for pushdown in [False, True]:
             for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
-                # db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped=main(pushdown,null_ratio,1)
-                # dfresults.loc[len(dfresults)] = [run, pushdown, null_ratio ,  db_name, label, indicators, nodes, timings_preprocessing, timings_cardinalities, indicatorsTimings,validationTimings, timings_total, ratio_dropped]
                 result = main(pushdown, null_ratio, 1)
-                # dfresults.loc[len(dfresults)] =
                 dfresults = pd.concat([dfresults, result])
     dfresults.to_csv(fileResults, mode='a', header=True)
     plotPushdown.main(fileResults)
@@ -1155,11 +969,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('config')
     parser.add_argument('-r', '--runs', default=1, type=int)
+    parser.add_argument('-a','--agg-config', type=str, default=None, help="Path csv file for aggregation configuration")
     parser.add_argument('-dl', '--distinct-low', default=0.000001, type=float)
     parser.add_argument('-dh', '--distinct-high', default=1, type=float)
     parser.add_argument('-c', '--correlation-threshold', default=0.98, type=float)
     parser.add_argument('-n', '--null-threshold', default=0.1, type=float)
-    parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str)
+    
+    # -------------------------------------------------------------
+    # DEFAULT ARG FIX: Provide an empty list to prevent NoneType iteration errors
+    # -------------------------------------------------------------
+    parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str, default=[])
+    
     parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
     parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
@@ -1180,4 +1000,5 @@ if __name__ == "__main__":
         pushdown=args.pushdown,
         remove_nulls=not args.keep_nulls,
         create_index=args.create_index,
+        agg_config=args.agg_config,
     )

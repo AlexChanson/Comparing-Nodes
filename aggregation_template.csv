@@ -1,0 +1,295 @@
+attribute,aggregation_function
+articleRankScore,avg
+betweennessScore,avg
+born,avg
+closenessScore,avg
+degreeScore,avg
+eigenvectorScore,avg
+opponent advanced goalkeeping_# pl,sum
+opponent advanced goalkeeping_90s,avg
+opponent advanced goalkeeping_ga,sum
+opponent advanced goalkeeping_pka,sum
+opponent defensive_# pl,sum
+opponent defensive_90s,avg
+opponent defensive_int,sum
+opponent defensive_tackles tklw,sum
+opponent goal and shot creation_# pl,sum
+opponent goal and shot creation_90s,avg
+opponent goalkeeping_# pl,sum
+opponent goalkeeping_90s,avg
+opponent goalkeeping_cs,sum
+opponent goalkeeping_cs%,avg
+opponent goalkeeping_d,sum
+opponent goalkeeping_ga,sum
+opponent goalkeeping_ga90,avg
+opponent goalkeeping_l,sum
+opponent goalkeeping_min,avg
+opponent goalkeeping_mp,avg
+opponent goalkeeping_pka,sum
+opponent goalkeeping_pkatt,sum
+opponent goalkeeping_pkm,sum
+opponent goalkeeping_pksv,sum
+opponent goalkeeping_save%,avg
+opponent goalkeeping_saves,sum
+opponent goalkeeping_sota,sum
+opponent goalkeeping_starts,sum
+opponent goalkeeping_w,sum
+opponent misc_# pl,sum
+opponent misc_2crdy,sum
+opponent misc_90s,avg
+opponent misc_crdr,sum
+opponent misc_crdy,sum
+opponent misc_crs,sum
+opponent misc_fld,max
+opponent misc_fls,max
+opponent misc_int,max
+opponent misc_off,max
+opponent misc_og,max
+opponent misc_tklw,max
+opponent pass types_# pl,sum
+opponent pass types_90s,avg
+opponent pass types_pass types crs,avg
+opponent passing_# pl,avg
+opponent passing_90s,avg
+opponent passing_ast,avg
+opponent playing time_# pl,avg
+opponent playing time_+/-,avg
+opponent playing time_+/-90,avg
+opponent playing time_90s,avg
+opponent playing time_age,avg
+opponent playing time_compl,avg
+opponent playing time_min,avg
+opponent playing time_min%,avg
+opponent playing time_mn/mp,avg
+opponent playing time_mn/start,avg
+opponent playing time_mn/sub,avg
+opponent playing time_mp,avg
+opponent playing time_ong,sum
+opponent playing time_onga,sum
+opponent playing time_ppm,avg
+opponent playing time_starts,avg
+opponent playing time_subs,avg
+opponent playing time_unsub,avg
+opponent possession_# pl,avg
+opponent possession_90s,avg
+opponent possession_poss,avg
+opponent shooting_# pl,avg
+opponent shooting_90s,avg
+opponent shooting_g/sh,avg
+opponent shooting_g/sot,avg
+opponent shooting_gls,sum
+opponent shooting_pk,sum
+opponent shooting_pkatt,sum
+opponent shooting_sh,sum
+opponent shooting_sh/90,avg
+opponent shooting_sot,sum
+opponent shooting_sot%,avg
+opponent shooting_sot/90,avg
+opponent standard_# pl,avg
+opponent standard_90ast,avg
+opponent standard_90g+a,avg
+opponent standard_90g+a-pk,avg
+opponent standard_90g-pk,avg
+opponent standard_90gls,avg
+opponent standard_90s,avg
+opponent standard_age,avg
+opponent standard_ast,sum
+opponent standard_crdr,sum
+opponent standard_crdy,sum
+opponent standard_g+a,sum
+opponent standard_g-pk,sum
+opponent standard_gls,sum
+opponent standard_min,sum
+opponent standard_mp,avg
+opponent standard_pk,avg
+opponent standard_pkatt,avg
+opponent standard_poss,avg
+opponent standard_starts,avg
+pageRankScore,avg
+player advanced goalkeeping_90s,avg
+player advanced goalkeeping_ga,sum
+player advanced goalkeeping_pka,sum
+player defensive_90s,avg
+player defensive_int,sum
+player defensive_tackles tklw,sum
+player goal and shot creation_90s,avg
+player goalkeeping_90s,avg
+player goalkeeping_cs,sum
+player goalkeeping_cs%,avg
+player goalkeeping_d,sum
+player goalkeeping_ga,sum
+player goalkeeping_ga90,avg
+player goalkeeping_l,sum
+player goalkeeping_min,avg
+player goalkeeping_mp,avg
+player goalkeeping_pk save%,avg
+player goalkeeping_pka,sum
+player goalkeeping_pkatt,sum
+player goalkeeping_pkm,sum
+player goalkeeping_pksv,sum
+player goalkeeping_save%,avg
+player goalkeeping_saves,sum
+player goalkeeping_sota,sum
+player goalkeeping_starts,avg
+player goalkeeping_w,sum
+player misc_2crdy,sum
+player misc_90s,avg
+player misc_crdr,sum
+player misc_crdy,sum
+player misc_crs,sum
+player misc_fld,sum
+player misc_fls,sum
+player misc_int,sum
+player misc_off,sum
+player misc_og,sum
+player misc_tklw,sum
+player pass types_90s,avg
+player pass types_crs,sum
+player passing_90s,avg
+player passing_ast,sum
+player playing time_+/-,avg
+player playing time_+/-90,avg
+player playing time_90s,avg
+player playing time_compl,sum
+player playing time_min,avg
+player playing time_min%,avg
+player playing time_mn/mp,avg
+player playing time_mn/start,avg
+player playing time_mn/sub,avg
+player playing time_mp,avg
+player playing time_on-off,sum
+player playing time_ong,sum
+player playing time_onga,sum
+player playing time_ppm,avg
+player playing time_starts,avg
+player playing time_subs,avg
+player playing time_unsub,avg
+player possession_90s,avg
+player shooting_90s,avg
+player shooting_g/sh,avg
+player shooting_g/sot,avg
+player shooting_gls,sum
+player shooting_pk,sum
+player shooting_pkatt,sum
+player shooting_sh,sum
+player shooting_sh/90,avg
+player shooting_sot,sum
+player shooting_sot%,avg
+player shooting_sot/90,avg
+player standard_90ast,avg
+player standard_90g+a,avg
+player standard_90g+a-pk,avg
+player standard_90g-pk,avg
+player standard_90gls,avg
+player standard_90s,avg
+player standard_ast,sum
+player standard_crdr,sum
+player standard_crdy,sum
+player standard_g+a,sum
+player standard_g-pk,sum
+player standard_gls,sum
+player standard_min,sum
+player standard_mp,avg
+player standard_pk,avg
+player standard_pkatt,sum
+player standard_starts,avg
+squad advanced goalkeeping_# pl,avg
+squad advanced goalkeeping_90s,avg
+squad advanced goalkeeping_ga,sum
+squad advanced goalkeeping_pka,sum
+squad defensive_# pl,avg
+squad defensive_90s,avg
+squad defensive_int,sum
+squad defensive_tackles tklw,sum
+squad goal and shot creation_# pl,avg
+squad goal and shot creation_90s,avg
+squad goalkeeping_# pl,avg
+squad goalkeeping_90s,avg
+squad goalkeeping_cs,sum
+squad goalkeeping_cs%,avg
+squad goalkeeping_d,sum
+squad goalkeeping_ga,sum
+squad goalkeeping_ga90,avg
+squad goalkeeping_l,sum
+squad goalkeeping_min,avg
+squad goalkeeping_mp,avg
+squad goalkeeping_pka,sum
+squad goalkeeping_pkatt,sum
+squad goalkeeping_pkm,sum
+squad goalkeeping_pksv,avg
+squad goalkeeping_save%,avg
+squad goalkeeping_saves,sum
+squad goalkeeping_sota,sum
+squad goalkeeping_starts,avg
+squad goalkeeping_w,sum
+squad misc_# pl,avg
+squad misc_2crdy,sum
+squad misc_90s,avg
+squad misc_crdr,sum
+squad misc_crdy,sum
+squad misc_crs,sum
+squad misc_fld,sum
+squad misc_fls,sum
+squad misc_int,sum
+squad misc_off,sum
+squad misc_og,sum
+squad misc_tklw,sum
+squad pass types_# pl,avg
+squad pass types_90s,avg
+squad pass types_pass types crs,sum
+squad passing_# pl,avg
+squad passing_90s,avg
+squad passing_ast,sum
+squad playing time_# pl,avg
+squad playing time_+/-,sum
+squad playing time_+/-90,avg
+squad playing time_90s,avg
+squad playing time_age,avg
+squad playing time_compl,sum
+squad playing time_min,sum
+squad playing time_min%,avg
+squad playing time_mn/mp,avg
+squad playing time_mn/start,avg
+squad playing time_mn/sub,avg
+squad playing time_mp,avg
+squad playing time_ong,sum
+squad playing time_onga,sum
+squad playing time_ppm,avg
+squad playing time_starts,avg
+squad playing time_subs,avg
+squad playing time_unsub,avg
+squad possession_# pl,avg
+squad possession_90s,avg
+squad possession_poss,avg
+squad shooting_# pl,avg
+squad shooting_90s,avg
+squad shooting_g/sh,avg
+squad shooting_g/sot,avg
+squad shooting_gls,sum
+squad shooting_pk,sum
+squad shooting_pkatt,sum
+squad shooting_sh,sum
+squad shooting_sh/90,avg
+squad shooting_sot,sum
+squad shooting_sot%,avg
+squad shooting_sot/90,avg
+squad standard_# pl,avg
+squad standard_90ast,avg
+squad standard_90g+a,avg
+squad standard_90g+a-pk,avg
+squad standard_90g-pk,avg
+squad standard_90gls,avg
+squad standard_90s,avg
+squad standard_age,avg
+squad standard_ast,avg
+squad standard_crdr,sum
+squad standard_crdy,sum
+squad standard_g+a,sum
+squad standard_g-pk,sum
+squad standard_gls,sum
+squad standard_min,avg
+squad standard_mp,avg
+squad standard_pk,avg
+squad standard_pkatt,sum
+squad standard_poss,avg
+squad standard_starts,avg

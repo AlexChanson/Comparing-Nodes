@@ -1,0 +1,11 @@
+{
+  "name": "soccer",
+  "labels": ["Player", "Team"],
+  "home": "C:/Users/Leoga/.Neo4jDesktop2/Data/dbmss/dbms-b4d6d326-6abc-4160-8e7b-bbae46faca2e",
+  "number_of_node": 9819,
+  "number_of_edge": 25385,
+  "avg_properties_node": 3.941,
+  "avg_properties_edge": 39.97,
+  "username": "neo4j",
+  "password": "neo4jneo4j"
+}

@@ -2,8 +2,6 @@
 import argparse
 import os
 import platform
-
-# NEW imports
 import re
 import subprocess
 import sys
@@ -13,7 +11,6 @@ from typing import Callable, List, Optional
 
 import psutil
 from neo4j import GraphDatabase, basic_auth
-
 
 @dataclass
 class DbSpec:
@@ -25,7 +22,6 @@ class DbSpec:
     start_timeout: int = 120  # seconds to wait for startup
     stop_timeout: int = 60  # seconds to wait for shutdown
 
-
 def _neo4j_executable(home: str) -> List[str]:
     is_windows = platform.system().lower().startswith("win")
     exe = os.path.join(home, "bin", "neo4j.bat" if is_windows else "neo4j")
@@ -34,38 +30,67 @@ def _neo4j_executable(home: str) -> List[str]:
         raise FileNotFoundError(msg)
     return [exe]
 
-
 def _run(cmd: List[str], env: Optional[dict] = None, check: bool = True) -> subprocess.CompletedProcess:
-    # Use a shell-less invocation; capture output for diagnostics
     try:
         return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, check=check)
     except subprocess.CalledProcessError as e:
         print(e.stdout, file=sys.stderr)
         raise
 
+# --- NEW: Kill Windows DBMS Process ---
+def _kill_windows_dbms(home: str) -> bool:
+    """Finds and terminates the Java process running the Neo4j instance on Windows."""
+    killed = False
+    norm_home = home.replace('\\', '/')
+    for proc in psutil.process_iter(attrs=["pid", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            joined = " ".join(cmdline)
+            if "-Dneo4j.home" in joined and norm_home in joined.replace('\\', '/'):
+                proc.terminate()
+                proc.wait(timeout=10)
+                killed = True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+            continue
+    return killed
 
 def start_dbms(db: DbSpec) -> None:
     print(f"\n=== Starting DBMS '{db.name}' from {db.home} ===")
     exe = _neo4j_executable(db.home)
-    # 'neo4j start' returns immediately; server continues in background.
-    out = _run([*exe, "start"]).stdout
-    print(out.strip())
-
+    is_windows = platform.system().lower().startswith("win")
+    
+    if is_windows:
+        subprocess.Popen(
+            [*exe, "console"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+        print("Started DBMS in background (console mode).")
+    else:
+        out = _run([*exe, "start"]).stdout
+        print(out.strip())
 
 def stop_dbms(db: DbSpec) -> None:
     print(f"\n=== Stopping DBMS '{db.name}' ===")
-    exe = _neo4j_executable(db.home)
-    try:
-        out = _run([*exe, "stop"]).stdout
-        print(out.strip())
-    except subprocess.CalledProcessError as e:
-        # If it's already stopped, ignore; else re-raise
-        msg = (e.stdout or "").lower()
-        if "not running" in msg or "no running" in msg:
-            print("DBMS was not running.")
+    is_windows = platform.system().lower().startswith("win")
+    
+    if is_windows:
+        if _kill_windows_dbms(db.home):
+            print("DBMS stopped.")
         else:
-            raise
-
+            print("DBMS was not running.")
+    else:
+        exe = _neo4j_executable(db.home)
+        try:
+            out = _run([*exe, "stop"]).stdout
+            print(out.strip())
+        except subprocess.CalledProcessError as e:
+            msg = (e.stdout or "").lower()
+            if "not running" in msg or "no running" in msg:
+                print("DBMS was not running.")
+            else:
+                raise
 
 def wait_for_bolt(bolt_uri: str, user: str, password: str, timeout_s: int) -> None:
     print(f"Waiting for Bolt at {bolt_uri} (timeout {timeout_s}s)...")
@@ -85,13 +110,11 @@ def wait_for_bolt(bolt_uri: str, user: str, password: str, timeout_s: int) -> No
     msg = f"Bolt did not become available within {timeout_s}s. Last error: {last_err}"
     raise TimeoutError(msg)
 
-
 def wait_for_bolt_down(bolt_uri: str, timeout_s: int) -> None:
     print(f"Waiting for Bolt to go down at {bolt_uri} (timeout {timeout_s}s)...")
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
-            # If connection succeeds, it's still up
             driver = GraphDatabase.driver(bolt_uri, auth=basic_auth("neo4j", "neo4j"))
             with driver.session(database=None) as s:
                 s.run("RETURN 1").consume()
@@ -103,7 +126,6 @@ def wait_for_bolt_down(bolt_uri: str, timeout_s: int) -> None:
     msg = "Server did not shut down in time."
     raise TimeoutError(msg)
 
-
 def run_tests(db: DbSpec, test_fn: Callable[[GraphDatabase], None]) -> None:
     print(f"\n--- Running tests on '{db.name}' ---")
     driver = GraphDatabase.driver(db.bolt_uri, auth=basic_auth(db.user, db.password))
@@ -111,7 +133,6 @@ def run_tests(db: DbSpec, test_fn: Callable[[GraphDatabase], None]) -> None:
         test_fn(driver)
     finally:
         driver.close()
-
 
 def cycle_databases(dbs: List[DbSpec], test_fn: Callable[[GraphDatabase], None]) -> None:
     for i, db in enumerate(dbs, 1):
@@ -122,29 +143,17 @@ def cycle_databases(dbs: List[DbSpec], test_fn: Callable[[GraphDatabase], None])
             run_tests(db, test_fn)
         finally:
             stop_dbms(db)
-            # Give it a moment to shut down; then verify Bolt is down
             try:
                 wait_for_bolt_down(db.bolt_uri, db.stop_timeout)
             except TimeoutError as e:
                 print(f"Warning: {e}", file=sys.stderr)
 
-
-# --- Example test function you can customize ---
 def example_tests(driver: GraphDatabase) -> None:
-    # 1) Simple smoke check
     with driver.session(database=None) as s:
         v = s.run("RETURN 1 AS ok").single()["ok"]
         print(f"Smoke test: ok={v}")
-    # 2) Add your real test logic here, e.g. run migrations, load fixtures, run assertions, etc.
-    # with driver.session(database='neo4j') as s:
-    #     s.run("MATCH (n) RETURN count(n) AS c").single()
-
 
 def parse_db_arg(db_arg: str) -> DbSpec:
-    """
-    --db name=alpha,home=/path/to/dbms,bolt=bolt://localhost:7687,user=neo4j,pass=secret
-    Only name,home,bolt are required.
-    """
     kv = {}
     for part in db_arg.split(","):
         if "=" not in part:
@@ -166,14 +175,7 @@ def parse_db_arg(db_arg: str) -> DbSpec:
         stop_timeout=int(kv.get("stop_timeout", "60")),
     )
 
-
-# --- NEW: discover the running DBMS home from processes ---
 def detect_running_dbms_home() -> Optional[str]:
-    """
-    Try to locate the home directory of the currently running Neo4j DBMS
-    (as launched by Neo4j Desktop) by inspecting process command lines
-    for -Dneo4j.home=... . Returns the home path or None if not found.
-    """
     for proc in psutil.process_iter(attrs=["name", "cmdline"]):
         try:
             cmdline = proc.info.get("cmdline") or []
@@ -191,54 +193,57 @@ def detect_running_dbms_home() -> Optional[str]:
             continue
     return None
 
-
-# --- NEW: wait for a DBMS (by home) to fully stop using 'neo4j status' ---
 def wait_until_stopped_by_home(home: str, timeout_s: int = 60) -> None:
     exe = _neo4j_executable(home)
     print(f"Waiting for DBMS at {home} to stop (timeout {timeout_s}s)...")
     deadline = time.time() + timeout_s
+    is_windows = platform.system().lower().startswith("win")
+    
     while time.time() < deadline:
-        cp = subprocess.run([*exe, "status"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
-        out = (cp.stdout or "").lower()
-        if any(w in out for w in ["not running", "inactive", "stopped"]):
-            print("Server stopped.")
-            return
+        if is_windows:
+            running_home = detect_running_dbms_home()
+            if not running_home or running_home.replace('\\', '/') != home.replace('\\', '/'):
+                print("Server stopped.")
+                return
+        else:
+            cp = subprocess.run([*exe, "status"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+            out = (cp.stdout or "").lower()
+            if any(w in out for w in ["not running", "inactive", "stopped"]):
+                print("Server stopped.")
+                return
         time.sleep(1)
     msg = "Server did not shut down in time."
     raise TimeoutError(msg)
 
-
-# --- NEW: stop *whatever* DBMS is currently running (no DbSpec needed) ---
 def stop_current_dbms(stop_timeout: int = 60) -> bool:
-    """
-    Detect the running Neo4j Desktop DBMS and stop it.
-    Returns True if a running DBMS was found and a stop was issued, else False.
-    """
     home = detect_running_dbms_home()
     if not home:
         print("No running Neo4j DBMS detected.")
         return False
 
     print(f"Detected running DBMS at: {home}")
-    exe = _neo4j_executable(home)
-    try:
-        out = _run([*exe, "stop"]).stdout
-        print(out.strip())
-    except subprocess.CalledProcessError as e:
-        msg = (e.stdout or "").lower()
-        # If already stopped between detect and stop, treat as success
-        if "not running" in msg:
-            print("DBMS was not running by the time we issued stop.")
-            return False
-        raise
+    is_windows = platform.system().lower().startswith("win")
+    
+    if is_windows:
+        _kill_windows_dbms(home)
+        print("DBMS stopped.")
+    else:
+        exe = _neo4j_executable(home)
+        try:
+            out = _run([*exe, "stop"]).stdout
+            print(out.strip())
+        except subprocess.CalledProcessError as e:
+            msg = (e.stdout or "").lower()
+            if "not running" in msg:
+                print("DBMS was not running by the time we issued stop.")
+                return False
+            raise
 
-    # Verify shutdown
     try:
         wait_until_stopped_by_home(home, stop_timeout)
     except TimeoutError as e:
         print(f"Warning: {e}", file=sys.stderr)
     return True
-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Start/stop Neo4j Desktop DBMSs in sequence and run tests.")
@@ -261,7 +266,6 @@ def main() -> None:
         return
 
     cycle_databases(dbs, example_tests)
-
 
 if __name__ == "__main__":
     main()

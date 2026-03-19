@@ -26,7 +26,8 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-
+# Import robust scaler for potential future use
+from sklearn.preprocessing import RobustScaler   
 
 def percentile_scale(s: pd.Series) -> pd.Series:
     """
@@ -95,16 +96,16 @@ def process_dataframe(
         distinct_ratio = np.nan if non_null_count == 0 else non_null.nunique(dropna=True) / non_null_count
 
         # Rule (i): null ratio threshold
-        # if pd.notna(null_ratio) and null_ratio > null_thresh:
-        #    report_rows.append({
-        #        "column": col,
-        #        "action": "dropped",
-        #        "reason": "null_ratio>thr",
-        #        "null_ratio": null_ratio,
-        #        "distinct_ratio": distinct_ratio,
-        #        "dtype_before": dtype_before,
-        #    })
-        #    continue
+        if pd.notna(null_ratio) and null_ratio > null_thresh:
+            report_rows.append({
+                "column": col,
+                "action": "dropped",
+                "reason": "null_ratio>thr",
+                "null_ratio": null_ratio,
+                "distinct_ratio": distinct_ratio,
+                "dtype_before": dtype_before,
+            })
+            continue
 
         # Type handling
         s_for_scale = s_orig
@@ -170,14 +171,14 @@ def process_dataframe(
             )
             continue
 
-        # Rule (iii): percentile scaling
-        s_scaled = percentile_scale(s_for_scale)
-        keep_df[col] = s_scaled
+        # Rule (iii): percentile scaling # not enabled
+        
+        keep_df[col] = s_for_scale
 
         report_rows.append(
             {
                 "column": col,
-                "action": "kept_scaled",
+                "action": "kept", # Changé de "kept_scaled" à "kept"
                 "reason": "",
                 "null_ratio": null_ratio,
                 "distinct_ratio": distinct_ratio,
@@ -356,9 +357,9 @@ def main() -> None:
         sys.exit(1)
 
     # Brief console summary
-    kept = (report_df["action"] == "kept_scaled").sum()
+    kept = (report_df["action"] == "kept").sum()
     dropped = (report_df["action"] == "dropped").sum()
-    print(f"Processed. Kept+scaled: {kept}, Dropped: {dropped}.")
+    print(f"Processed. Kept: {kept}, Dropped: {dropped}.")
     print(f"Saved processed CSV to: {args.output}")
     print(f"Saved report CSV to:    {args.report}")
 
