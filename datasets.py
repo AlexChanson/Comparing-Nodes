@@ -4,12 +4,12 @@ import numpy as np
 from sklearn import preprocessing
 
 
-def load_icij(path="sample_data/Officer_indicators_processed_nonulls.csv") -> bool:
+def load_icij(path="data/Officer_indicators_processed_nonulls.csv") -> bool:
     # TODO
     return True
 
 
-def load_iris(path="./sample_data/iris.csv"):
+def load_iris(path="./data/iris.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -22,7 +22,7 @@ def load_iris(path="./sample_data/iris.csv"):
     return features, np.asarray(nodes)
 
 
-def load_directors(path="./sample_data/Director_indicators_processed_nonulls.csv"):
+def load_directors(path="./data/Director_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     all = []
@@ -36,7 +36,7 @@ def load_directors(path="./sample_data/Director_indicators_processed_nonulls.csv
             all.append([float('nan') if x == '' else float(x) for x in line.split(',')])
     print("LOADED Directors |D|=", len(features), " n=", len(nodes))
     #return features, np.asarray(nodes)
-    with open("./sample_data/Director_beforeValidation.csv") as f:
+    with open("data/Director_beforeValidation.csv") as f:
         first_line = f.readline()
         for line in f:
             line = line.strip()
@@ -44,7 +44,7 @@ def load_directors(path="./sample_data/Director_indicators_processed_nonulls.csv
     return beforeValidation, all, features, np.asarray(nodes)
 
 
-def load_actors(path="./sample_data/Actor_indicators_processed_nonulls.csv"):
+def load_actors(path="./data/Actor_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -57,7 +57,7 @@ def load_actors(path="./sample_data/Actor_indicators_processed_nonulls.csv"):
     return features, np.asarray(nodes)
 
 
-def load_movies(path="./sample_data/Movie_indicators_processed_nonulls.csv"):
+def load_movies(path="./data/Movie_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     all = []
@@ -71,7 +71,7 @@ def load_movies(path="./sample_data/Movie_indicators_processed_nonulls.csv"):
             all.append([float('nan') if x == '' else float(x) for x in line.split(',')])
     print("LOADED Movies |D|=", len(features), " n=", len(nodes))
     #return features, np.asarray(nodes)
-    with open("./sample_data/Movie_beforeValidation.csv") as f:
+    with open("data/Movie_beforeValidation.csv") as f:
         first_line = f.readline()
         for line in f:
             line = line.strip()
@@ -83,7 +83,7 @@ def normalize(data):
     return preprocessing.MinMaxScaler().fit_transform(data)
 
 
-def load_airports(path="./sample_data/Airport_indicators_processed_nonulls.csv"):
+def load_airports(path="./data/Airport_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -96,7 +96,7 @@ def load_airports(path="./sample_data/Airport_indicators_processed_nonulls.csv")
     return features, np.asarray(nodes)
 
 
-def load_city(path="./sample_data/City_indicators_processed_nonulls.csv"):
+def load_city(path="./data/City_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -109,7 +109,7 @@ def load_city(path="./sample_data/City_indicators_processed_nonulls.csv"):
     return features, np.asarray(nodes)
 
 
-def load_country(path="./sample_data/Country_indicators_processed_nonulls.csv"):
+def load_country(path="./data/Country_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -122,7 +122,7 @@ def load_country(path="./sample_data/Country_indicators_processed_nonulls.csv"):
     return features, np.asarray(nodes)
 
 
-def load_entity(path="./sample_data/Entity_indicators_processed_nonulls.csv"):
+def load_entity(path="./data/Entity_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -135,7 +135,7 @@ def load_entity(path="./sample_data/Entity_indicators_processed_nonulls.csv"):
     return features, np.asarray(nodes)
 
 
-def load_intermediary(path="./sample_data/Intermediary_indicators_processed_nonulls.csv"):
+def load_intermediary(path="./data/Intermediary_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:
@@ -148,7 +148,7 @@ def load_intermediary(path="./sample_data/Intermediary_indicators_processed_nonu
     return features, np.asarray(nodes)
 
 
-def load_officer(path="./sample_data/Officer_indicators_processed_nonulls.csv"):
+def load_officer(path="./data/Officer_indicators_processed_nonulls.csv"):
     features = []
     nodes = []
     with open(path) as f:

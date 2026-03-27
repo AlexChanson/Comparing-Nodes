@@ -162,10 +162,10 @@ def score(file, ngroups=2):
 
 
 if __name__ == "__main__":
-    # score('sample_data/Actor_indicators_processed_nonulls.csv',2)
-    # score('sample_data/Director_indicators_processed_nonulls.csv',2)
-    # score('sample_data/Intermediary_indicators_processed_nonulls.csv',2)
-    # score('sample_data/Country_indicators_processed_nonulls.csv',2)
-    # score('sample_data/Airport_indicators_processed_nonulls.csv',2)
-    # score('sample_data/Movie_indicators_processed_nonulls.csv',2)
-    score('sample_data/Entity_indicators_processed_nonulls.csv', 2)
+    # score('data/Actor_indicators_processed_nonulls.csv',2)
+    # score('data/Director_indicators_processed_nonulls.csv',2)
+    # score('data/Intermediary_indicators_processed_nonulls.csv',2)
+    # score('data/Country_indicators_processed_nonulls.csv',2)
+    # score('data/Airport_indicators_processed_nonulls.csv',2)
+    # score('data/Movie_indicators_processed_nonulls.csv',2)
+    score('data/Entity_indicators_processed_nonulls.csv', 2)

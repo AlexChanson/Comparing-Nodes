@@ -826,7 +826,7 @@ def main(
                     to_keep=to_keep,
                 )
 
-                out = "sample_data/" + label + "_indicators.csv"
+                out = "data/" + label + "_indicators.csv"
                 if database_config.avg_properties_edge == float(0):
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep
@@ -843,7 +843,7 @@ def main(
                 end_time = time.time()
                 indicatorsTimings = end_time - start_time
 
-                outBeforeValidation = "sample_data/" + label + "_beforeValidation.csv"
+                outBeforeValidation = "data/" + label + "_beforeValidation.csv"
                 dffinal.to_csv(outBeforeValidation, index=False)
 
                 print("Validating candidate indicators")
@@ -879,12 +879,12 @@ def main(
                 else:
                     report = pd.concat([report, reportCorr], axis=0)
 
-                processedIndicators = "sample_data/" + label + "_indicators_processed.csv"
+                processedIndicators = "data/" + label + "_indicators_processed.csv"
                 processingReport = "reports/" + label + "_indicators_processed.csv"
 
                 if remove_nulls:
                     keep = utility.remove_rows_with_nulls(keep)
-                    processedIndicators = "sample_data/" + label + "_indicators_processed_nonulls.csv"
+                    processedIndicators = "data/" + label + "_indicators_processed_nonulls.csv"
 
                 dist = schema_hops_from_label(
                     db.get_driver(), label, include_relationship_types=True, directed=False

@@ -29,4 +29,4 @@ def summarize_csv_directory(directory_path) -> None:
 
 # ===== Example usage =====
 if __name__ == "__main__":
-    summarize_csv_directory("sample_data/indicators_171025")
+    summarize_csv_directory("data/indicators_171025")
