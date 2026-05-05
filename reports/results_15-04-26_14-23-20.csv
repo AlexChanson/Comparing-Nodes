@@ -1,0 +1,2 @@
+,run,pushdown,database,N,E,label,indicators#,nodes#,avgLabelProp,time_Preprocessing,time_Cardinalities,time_Indicators,time_Validation,time_total,ratio_prop_dropped
+0,0,False,neo4j,9819,25385,Team,77,343,0.0,0,0.9193496704101562,3.0707571506500244,1.1985664367675781,5.188673257827759,13.775510204081632

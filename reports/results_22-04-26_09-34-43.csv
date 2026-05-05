@@ -1,0 +1,2 @@
+,run,pushdown,database,N,E,label,indicators#,nodes#,avgLabelProp,time_Preprocessing,time_Cardinalities,time_Indicators,time_Validation,time_total,ratio_prop_dropped
+0,0,False,airports,52944,136948,Airport,8,2986,,0,1.0103206634521484,2.3727564811706543,1.0954089164733887,4.478486061096191,7.389162561576355

@@ -21,7 +21,6 @@ from utility import outer_join_features
 from validation import drop_columns_by_suffix_with_report, export, process_dataframe, remove_correlated_columns
 
 NUMERIC_TYPES = [
-    # APOC meta cypher type names (Neo4j 4/5)
     "INTEGER",
     "FLOAT",
     "Number",
@@ -30,10 +29,10 @@ NUMERIC_TYPES = [
 ]
 
 class Neo4jConnector:
-    """A simple Neo4j connection manager and query runner."""
 
-    def __init__(self, uri: str, user: str, password: str, encrypted: bool = False, **driver_kwargs: Any) -> None:
+    def __init__(self, uri: str, user: str, password: str, encrypted: bool = False, database: Optional[str] = None, **driver_kwargs: Any) -> None:
         self._driver = GraphDatabase.driver(uri, auth=basic_auth(user, password), encrypted=encrypted, **driver_kwargs)
+        self.database = database
 
     def get_driver(self) -> Driver:
         return self._driver
@@ -44,7 +43,8 @@ class Neo4jConnector:
     def execute_query(
         self, query: str, parameters: Optional[Dict[str, Any]] = None, database: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        with self._driver.session(database=database) as session:
+        db_to_use = database or self.database
+        with self._driver.session(database=db_to_use) as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
 
@@ -99,42 +99,44 @@ class Neo4jConnector:
           endLabels,
           startPopulation,
           endPopulation,
-          minOut, maxOut, minIn, maxIn,
-          CASE
-            WHEN minOut >= 1 AND maxOut <= 1 AND minIn >= 1 AND maxIn <= 1 THEN 'one-to-one'
-            WHEN minOut >= 0 AND maxIn <= 1 THEN 'one-to-many'
-            WHEN maxOut <= 1 AND minIn >= 0 THEN 'many-to-one'
-            ELSE 'many-to-many'
-          END AS cardinality
-        ORDER BY relType, startLabels, endLabels
+          minOut, maxOut, minIn, maxIn
         """
 
         result = self.execute_query(query)
-        return [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-one'], [
-            rec['relType'] for rec in result if rec['cardinality'] == 'many-to-many'
-        ]
+        
+        deep_traversal_rels = []
+        m2m_rels = []
+        
+        for rec in result:
+            if rec['maxOut'] <= 1:
+                deep_traversal_rels.append(rec['relType'])
+            else:
+                m2m_rels.append(rec['relType'])
+                
+        deep_traversal_rels = list(set(deep_traversal_rels))
+        m2m_rels = list(set(m2m_rels))
+    
+
+        print(f"\n[INFO] Deep relationships : {deep_traversal_rels}")
+        return deep_traversal_rels, m2m_rels
 
     def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep) -> str:
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
         props = to_keep
 
-        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
-
         if to_keep == []:
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-            WHERE
-              all(rel IN relationships(p) WHERE
-                  type(rel) in {many2one})
+            WHERE all(rel IN relationships(p) WHERE type(rel) in {many2one})
             WITH n, collect(DISTINCT m) + n AS nodes
             WITH n,
                  [x IN nodes |
                     apoc.map.fromPairs(
-                      [k IN keys(x)
-                         WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
-                         | [head(labels(x)) + "_" + k, x[k]]
+                      [k IN [key IN keys(x) WHERE apoc.meta.cypher.type(x[key]) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double', 'STRING']]
+                         WHERE toFloat(x[k]) IS NOT NULL
+                         | [head(labels(x)) + "_" + k, toFloat(x[k])]
                       ]
                     )
                  ] AS maps
@@ -143,86 +145,81 @@ class Neo4jConnector:
             """
 
         return f"""
-                        MATCH (n:`{lbl}`)
-                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-                        WHERE
-                          all(rel IN relationships(p) WHERE
-                              type(rel) in {many2one})
-                        WITH n, collect(DISTINCT m) + n AS nodes
-                        WITH n,
-                             [x IN nodes |
-                                apoc.map.fromPairs(
-                                  [k IN {props}
-                                     WHERE x[k] IS NOT NULL AND apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
-                                     | [head(labels(x)) + "_" + k, x[k]]
-                                  ]
-                                )
-                             ] AS maps
-                        RETURN id(n) AS rootId,
-                               apoc.map.mergeList(maps) AS mergedNumericProperties
-                        """
+            MATCH (n:`{lbl}`)
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE all(rel IN relationships(p) WHERE type(rel) in {many2one})
+            WITH n, collect(DISTINCT m) + n AS nodes
+            WITH n,
+                 [x IN nodes |
+                    apoc.map.fromPairs(
+                      // DOUBLE FILTRAGE
+                      [k IN [key IN {props} WHERE x[key] IS NOT NULL AND apoc.meta.cypher.type(x[key]) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double', 'STRING']]
+                         WHERE toFloat(x[k]) IS NOT NULL
+                         | [head(labels(x)) + "_" + k, toFloat(x[k])]
+                      ]
+                    )
+                 ] AS maps
+            RETURN id(n) AS rootId,
+                   apoc.map.mergeList(maps) AS mergedNumericProperties
+            """
+    
 
     def build_cypher_edges(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep) -> str:
         lbl = self.backtick_escape(label)
         depth = "" if max_depth is None else str(int(max_depth))
         props = to_keep
 
-        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
-
         if to_keep == []:
             return f"""
             MATCH (n:`{lbl}`)
             OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-            WHERE
-              all(rel IN relationships(p) WHERE
-                   type(rel) in {many2one})
+            WHERE all(rel IN relationships(p) WHERE type(rel) in {many2one})
+            WITH n, apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
             WITH n,
-            apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
-            WITH n,
-            [r IN rels |
-            apoc.map.fromPairs(
-              [k IN keys(r)
-                 WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
-                 | [type(r) + "_" + k, r[k]]
-              ]
-            )
-            ] AS maps
+                 [r IN rels |
+                    apoc.map.fromPairs(
+                      // DOUBLE FILTRAGE SUR LES RELATIONS
+                      [k IN [key IN keys(r) WHERE apoc.meta.cypher.type(r[key]) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double', 'STRING']]
+                         WHERE toFloat(r[k]) IS NOT NULL
+                         | [type(r) + "_" + k, toFloat(r[k])]
+                      ]
+                    )
+                 ] AS maps
             WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
-            WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
-            RETURN id(n) AS rootId,
-            mergedNumericProperties;
+            WHERE size(keys(mergedNumericProperties)) > 0
+            RETURN id(n) AS rootId, mergedNumericProperties;
             """
+            
         return f"""
-                        MATCH (n:`{lbl}`)
-                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
-                        WHERE
-                          all(rel IN relationships(p) WHERE
-                               type(rel) in {many2one})
-                        WITH n,
-                        apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
-                        WITH n,
-                        [r IN rels |
-                        apoc.map.fromPairs(
-                          [k IN {props}
-                             WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
-                             | [type(r) + "_" + k, r[k]]
-                          ]
-                        )
-                        ] AS maps
-                        WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
-                        WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
-                        RETURN id(n) AS rootId,
-                        mergedNumericProperties;
-                        """
+            MATCH (n:`{lbl}`)
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE all(rel IN relationships(p) WHERE type(rel) in {many2one})
+            WITH n, apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+            WITH n,
+                 [r IN rels |
+                    apoc.map.fromPairs(
+                      [k IN [key IN {props} WHERE r[key] IS NOT NULL AND apoc.meta.cypher.type(r[key]) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double', 'STRING']]
+                         WHERE toFloat(r[k]) IS NOT NULL
+                         | [type(r) + "_" + k, toFloat(r[k])]
+                      ]
+                    )
+                 ] AS maps
+            WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+            WHERE size(keys(mergedNumericProperties)) > 0
+            RETURN id(n) AS rootId, mergedNumericProperties;
+            """
+
 
     def fetch_as_dataframe(
-        self, out, label: str, max_depth: Optional[int], many2one, checkedges=True, suffixes=[], to_keep=[]
+        self, out, label: str, max_depth: Optional[int], many2one, checkedges=True, suffixes=[], to_keep=[], database: Optional[str] = None
     ) -> pd.DataFrame:
+        db_to_use = database or self.database
         query = self.build_cypher_nodes(label, max_depth, many2one, suffixes, to_keep)
-        result = self.execute_query(query)
+        result = self.execute_query(query, database=db_to_use)
         if checkedges:
             query_edge = self.build_cypher_edges(label, max_depth, many2one, suffixes, to_keep)
-            result.extend(self.execute_query(query_edge))
+            result.extend(self.execute_query(query_edge, database=db_to_use))
+        
         rows = []
         for rec in result:
             root_id = rec["rootId"]
@@ -230,6 +227,9 @@ class Neo4jConnector:
             row = {"rootId": root_id}
             row.update(props)
             rows.append(row)
+
+        if not rows:
+            return pd.DataFrame(columns=["rootId"])
 
         df = pd.DataFrame(rows).sort_values("rootId").reset_index(drop=True)
         return df
@@ -254,7 +254,7 @@ class Neo4jConnector:
         include_relationships: bool = True,
         dry_run: bool = False,
     ) -> Dict[str, List[Tuple[str, str]]]:
-        session = self._driver.session()
+        session = self._driver.session(database=self.database)
         drop_re = ""
         if drop_suffixes:
             safe = [re.escape(s) for s in drop_suffixes]
@@ -399,7 +399,7 @@ class Neo4jConnector:
         ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
         """
 
-        session = self._driver.session()
+        session = self._driver.session(database=self.database)
         recs = session.run(
             cypher,
             NUMERIC_TYPES=list(numeric_types),
@@ -484,7 +484,7 @@ class Neo4jConnector:
         ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
         """
 
-        session = self._driver.session()
+        session = self._driver.session(database=self.database)
         recs = session.run(
             cypher,
             NUMERIC_TYPES=list(numeric_types),
@@ -511,7 +511,7 @@ class Neo4jConnector:
         numeric_node_props: Dict[str, Set[str]] = {}
         numeric_rel_props: Dict[str, Set[str]] = {}
 
-        session = self._driver.session()
+        session = self._driver.session(database=self.database)
         if include_nodes:
             rows = session.run(
                 """
@@ -619,7 +619,7 @@ class Neo4jConnector:
         return dropped
 
     def count_numeric_properties(self):
-        with self._driver.session() as session:
+        with self._driver.session(database=self.database) as session:
             numeric_types = ["INTEGER", "FLOAT", "DOUBLE", "LONG"]
             cypher = """
             CALL {
@@ -692,9 +692,8 @@ def main(
     agg_mapping = {}
     if agg_config:
         import csv
-        print(f"Chargement des règles d'agrégation depuis {agg_config}...")
+        print(f"Loading agg rules from : {agg_config}...")
         with open(agg_config, mode='r', encoding='utf-8') as f:
-            # On suppose un CSV simple: attribut,fonction (ex: age,max)
             reader = csv.reader(f)
             for row in reader:
                 if len(row) >= 2:
@@ -703,10 +702,7 @@ def main(
                     agg_mapping[attribut] = fonction
 
     current_time = time.localtime()
-    
-    # -------------------------------------------------------------
-    # WINDOWS FIX: Using underscores and dashes instead of colons!
-    # -------------------------------------------------------------
+
     formatted_time = time.strftime("%d-%m-%y_%H-%M-%S", current_time)
     fileResults = 'reports/results_' + formatted_time + '.csv'
     
@@ -737,15 +733,11 @@ def main(
 
         stop_current_dbms()
         db_spec = database_config.get_db_spec()
-        print(db_spec)
+        print(f"db_spec : {db_spec}")
         start_dbms(db_spec)
-        
-        # -------------------------------------------------------------
-        # WAIT FOR BOLT FIX: Gives Neo4j time to boot up before logging in
-        # -------------------------------------------------------------
         wait_for_bolt(db_spec.bolt_uri, db_spec.user, db_spec.password, db_spec.start_timeout)
 
-        with Neo4jConnector(database_config.uri, database_config.username, database_config.password) as db:
+        with Neo4jConnector(database_config.uri, database_config.username, database_config.password, database=database_config.name) as db:
             resprop = db.count_numeric_properties()
             if drop_index:
                 res = db.drop_indexes_on_numeric_properties(
@@ -787,6 +779,11 @@ def main(
                 )
                 suffixes_for_removal = []
                 to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                
+                dropped_pushdown = resprop - len(to_keep)
+                if dropped_pushdown > 0:
+                    print(f"Colonnes supprimées (densité via Pushdown) : {dropped_pushdown} colonnes")
+                    
                 print("number of properties to keep:", len(to_keep))
                 ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
                 end_time = time.time()
@@ -799,7 +796,7 @@ def main(
                 )
                 to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
                 ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
-                print("min null ratio for validation: ", 1 - null_threshold),
+                print("min null ratio for validation: ", 1 - null_threshold)
                 toPassForValidation = db.numeric_properties_with_min_null_ratio(
                     min_nonnull_ratio=1 - null_threshold,
                     numeric_types=("Long", "Double", "Float", "Integer"),
@@ -819,6 +816,7 @@ def main(
                 dfm2m = aggregate_m2m_properties_for_label(
                     db.get_driver(),
                     label,
+                    database=database_config.name,
                     agg=agg_mapping if agg_mapping else "avg",
                     include_relationship_properties=True,
                     only_reltypes=manyToMany,
@@ -829,12 +827,15 @@ def main(
                 out = "sample_data/" + label + "_indicators.csv"
                 if database_config.avg_properties_edge == float(0):
                     df121 = db.fetch_as_dataframe(
-                        out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep
+                        out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep, database=database_config.name
                     )
                 else:
                     df121 = db.fetch_as_dataframe(
-                        out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep
+                        out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep, database=database_config.name
                     )
+
+                # print(f"df121 : {df121.head()}")
+                # print(f"dfm2m : {dfm2m.head()}")
 
                 dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
                 dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
@@ -848,9 +849,6 @@ def main(
 
                 print("Validating candidate indicators")
 
-                # -------------------------------------------------------------
-                # EMPTY DATAFRAME FIX: Do not crash if a label yields zero records
-                # -------------------------------------------------------------
                 if dffinal.empty or len(dffinal.columns) == 0:
                     print(f"No data found for {label}. Skipping...")
                     continue
@@ -862,17 +860,30 @@ def main(
 
                 start_time = time.time()
                 
-                # -------------------------------------------------------------
-                # PANDAS DECIMAL CASTING FIX: Allows integers to take scaled float values
-                # -------------------------------------------------------------
+                cols_before_suffix = set(dffinal.columns)
                 if not pushdown:
                     dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
+                    cols_after_suffix = set(dffinal.columns)
+                    dropped_suffix = cols_before_suffix - cols_after_suffix
+                    if dropped_suffix:
+                        print(f"Colonnes supprimées (suffixes) : {dropped_suffix}")
+                
+                cols_before_corr = set(dffinal.columns)
                 dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
+                cols_after_corr = set(dffinal.columns)
+                dropped_corr = cols_before_corr - cols_after_corr
+                if dropped_corr:
+                    print(f"Colonnes supprimées (corrélation) : {dropped_corr}")
                 
                 int_cols = dffinal.select_dtypes(include=['int64', 'int32']).columns
                 dffinal[int_cols] = dffinal[int_cols].astype(float)
                 
+                cols_before_proc = set(dffinal.columns)
                 keep, report = process_dataframe(dffinal, null_threshold, distinct_low, distinct_high, pushdown)
+                cols_after_proc = set(keep.columns)
+                dropped_proc = cols_before_proc - cols_after_proc
+                if dropped_proc:
+                    print(f"Colonnes supprimées (variance/densité) : {dropped_proc}")
 
                 if not pushdown:
                     report = pd.concat([report, reportUW, reportCorr], axis=0)
@@ -974,12 +985,7 @@ if __name__ == "__main__":
     parser.add_argument('-dh', '--distinct-high', default=1, type=float)
     parser.add_argument('-c', '--correlation-threshold', default=0.98, type=float)
     parser.add_argument('-n', '--null-threshold', default=0.1, type=float)
-    
-    # -------------------------------------------------------------
-    # DEFAULT ARG FIX: Provide an empty list to prevent NoneType iteration errors
-    # -------------------------------------------------------------
     parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str, default=[])
-    
     parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
     parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')

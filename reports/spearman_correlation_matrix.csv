@@ -1,0 +1,12 @@
+,N,E,indicators#,nodes#,avgLabelProp,time_Preprocessing,time_Cardinalities,time_Indicators,time_Validation,time_total,ratio_prop_dropped
+N,,,,,,,,,,,
+E,,,,,,,,,,,
+indicators#,,,,,,,,,,,
+nodes#,,,,,,,,,,,
+avgLabelProp,,,,,,,,,,,
+time_Preprocessing,,,,,,,,,,,
+time_Cardinalities,,,,,,,,,,,
+time_Indicators,,,,,,,,,,,
+time_Validation,,,,,,,,,,,
+time_total,,,,,,,,,,,
+ratio_prop_dropped,,,,,,,,,,,

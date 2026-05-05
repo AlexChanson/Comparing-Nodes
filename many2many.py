@@ -9,21 +9,14 @@ AggFn = Literal["sum", "avg", "min", "max", "count"]
 
 
 def _backtick(label: str) -> str:
-    # Safely quote labels that may contain special chars/spaces
     return f"`{label.replace('`', '``')}`"
 
 
 def find_many_to_many_reltypes(session: Session, label: str) -> List[str]:
-    """
-    Keep a relationship type if there exists at least one node n:L
-    with more than one outgoing relationship of that type.
-    (Condition (ii) about target in-degree is dropped.).
-    """
     lbl = _backtick(label)
     q = f"""
     MATCH (n:{lbl})-[r]-()
     WITH n, type(r) AS reltype
-    // For each (n, reltype), count how many outgoing edges of that type n has
     WITH reltype, n, count(*) AS deg
     WHERE deg > 1
     RETURN DISTINCT reltype
@@ -33,19 +26,11 @@ def find_many_to_many_reltypes(session: Session, label: str) -> List[str]:
 
 
 def find_only_many_to_many_reltypes(session: Session, label: str) -> List[str]:
-    """
-    Find relationship types r such that there exists:
-      - at least one node n:L with out-degree via r > 1, and
-      - at least one neighbor node m (any label) with in-degree via r > 1.
-    This detects many-to-many at the instance level.
-    """
     lbl = _backtick(label)
     q = f"""
-    // Collect candidate reltypes touching L at all
     MATCH (n:{lbl})-[r]->()
     WITH DISTINCT type(r) AS reltype
 
-    // There exists an L-node with degree>1 via reltype?
     WHERE EXISTS {{
       MATCH (n:{lbl})-[r1]->()
       WHERE type(r1) = reltype
@@ -54,7 +39,6 @@ def find_only_many_to_many_reltypes(session: Session, label: str) -> List[str]:
       RETURN 1
     }}
 
-    // And there exists some target node with indegree>1 via reltype?
     AND EXISTS {{
       MATCH ()-[r2]->(m)
       WHERE type(r2) = reltype
@@ -73,7 +57,7 @@ def _aggregate_neighbors_for_reltype(
     session: Session,
     label: str,
     reltype: str,
-    agg: Union[AggFn, Dict[str, str]] = "sum", # <-- MODIFIÉ pour accepter le dico
+    agg: Union[AggFn, Dict[str, str]] = "sum",
     include_rels: bool = True,
     suffixes: Optional[Iterable[str]] = None,
     to_keep=[],
@@ -82,7 +66,6 @@ def _aggregate_neighbors_for_reltype(
     lbl = _backtick(label)
     props = to_keep
 
-    # Chaîne pour calculer toutes les agrégations simultanément
     cypher_aggregations = """
         sum(toFloat(v)) AS val_sum, 
         avg(toFloat(v)) AS val_avg, 
@@ -98,7 +81,7 @@ def _aggregate_neighbors_for_reltype(
             WITH n, m
             UNWIND keys(m) AS k
             WITH n, k, m[k] AS v
-            WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+            WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double']
             RETURN id(n) AS nid, k AS prop, {cypher_aggregations}
         """
     else:
@@ -107,22 +90,19 @@ def _aggregate_neighbors_for_reltype(
             WHERE type(r) = $reltype
             UNWIND {props} AS k
             WITH n, k, m[k] AS v
-            WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+            WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double']
             RETURN id(n) AS nid, k AS prop, {cypher_aggregations}
         """
         
     neighbor_rows = session.run(q_neighbors, {"reltype": reltype}).data()
     result: Dict[int, Dict[str, float]] = {}
     
-    # --- Fonction pour déterminer l'agrégation à utiliser ---
     def get_val_for_prop(row, prop_name):
         if isinstance(agg, dict):
-            # Cherche la fonction pour cette propriété, sinon utilise 'avg' par défaut
             func = agg.get(prop_name, "avg").lower()
         else:
             func = agg.lower()
             
-        # Sécurité : si la fonction du CSV n'est pas reconnue, on force 'avg'
         if func not in ["sum", "avg", "min", "max", "count"]:
             func = "avg"
             
@@ -136,7 +116,6 @@ def _aggregate_neighbors_for_reltype(
         col = f"{reltype}__neighbor__{func_used}_{prop}"
         result.setdefault(nid, {})[col] = val
 
-    # --- Relationship properties ---
     if include_rels:
         if to_keep == []:
             q_rels = f"""
@@ -144,7 +123,7 @@ def _aggregate_neighbors_for_reltype(
                 WHERE type(r) = $reltype
                 UNWIND keys(r) AS k
                 WITH n, k, r[k] AS v
-                WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double']
                 RETURN id(n) AS nid, k AS prop, {cypher_aggregations}
             """
         else:
@@ -153,7 +132,7 @@ def _aggregate_neighbors_for_reltype(
                 WHERE type(r) = $reltype
                 UNWIND {props} AS k
                 WITH n, k, r[k] AS v
-                WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER','FLOAT','NUMBER']
+                WHERE v IS NOT NULL AND apoc.meta.cypher.type(v) IN ['INTEGER', 'FLOAT', 'Number', 'Long', 'Double']
                 RETURN id(n) AS nid, k AS prop, {cypher_aggregations}
             """
             
@@ -172,36 +151,17 @@ def _aggregate_neighbors_for_reltype(
 def aggregate_m2m_properties_for_label(
     driver: Driver,
     label: str,
+    database: str = "neo4j",
     agg: Union[AggFn, Dict[str, str]] = "sum",
     include_relationship_properties: bool = True,
     only_reltypes: Optional[Iterable[str]] = None,
     suffixes: Optional[Iterable[str]] = None,
     to_keep=None,
 ) -> pd.DataFrame:
-    """
-    High-level function:
-      1) Finds many-to-many relationship types touching nodes with label `label`
-         (unless `only_reltypes` is provided).
-      2) For each such reltype, aggregates numeric neighbor and relationship properties.
-      3) Returns a pandas DataFrame with one row per node (id(n)) and aggregated columns.
 
-    Args:
-        driver: neo4j.Driver (you said you already have connection code;
-                pass the driver you already create)
-        label: the node label L
-        agg: 'sum' (default), 'avg', 'min', 'max', or 'count'
-        include_relationship_properties: include numeric properties from the relationships themselves
-        only_reltypes: if provided, skip detection and restrict to these reltypes
-
-    Returns:
-        pandas.DataFrame with columns: ['node_id', <aggregated columns>...]
-
-    """
-    with driver.session() as session:
+    with driver.session(database=database) as session:
         reltypes = list(only_reltypes) if only_reltypes else find_many_to_many_reltypes(session, label)
-        # print(reltypes)
 
-        # If no M2M reltypes, still return DF with node ids and no extra cols
         if not reltypes:
             ids = session.run(f"MATCH (n:{_backtick(label)}) RETURN id(n) AS nid").data()
             return pd.DataFrame({"node_id": [r["nid"] for r in ids]})
@@ -218,37 +178,25 @@ def aggregate_m2m_properties_for_label(
                 suffixes=suffixes,
                 to_keep=to_keep,
             )
-            # Merge maps
             for nid, cols in partial.items():
                 per_node_maps.setdefault(nid, {}).update(cols)
 
-        # Ensure we include all nodes with label, even if they had no neighbors
         ids = session.run(f"MATCH (n:{_backtick(label)}) RETURN id(n) AS nid").data()
         all_ids = [r["nid"] for r in ids]
         for nid in all_ids:
             per_node_maps.setdefault(nid, {})
 
-        # Build DataFrame
         rows = []
         for nid, cols in per_node_maps.items():
             row = {"node_id": nid}
             row.update(cols)
             rows.append(row)
 
-        # For sum/avg/min/max it's often practical to fill NaN with 0 (sum) or leave NaN.
-        # We'll leave NaN so you can distinguish “no data” vs “zero”.
+        if not rows:
+            return pd.DataFrame(columns=["node_id"])
+
         return pd.DataFrame(rows).sort_values("node_id").reset_index(drop=True)
 
 
-# -------- Example usage (you already have connection code) --------
 if __name__ == "__main__":
-    """
-    Example:
-        from neo4j import GraphDatabase
-        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j","password"))
-
-        # Aggregate neighbor and relationship numeric properties for label 'Airport'
-        df = aggregate_m2m_properties_for_label(driver, "Airport", agg="sum", include_relationship_properties=True)
-
-        print(df.head())
-    """
+    pass

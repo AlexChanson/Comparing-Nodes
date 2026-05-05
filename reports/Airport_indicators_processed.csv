@@ -1,0 +1,82 @@
+column,action,reason,null_ratio,distinct_ratio,dtype_before
+Country_forested_area,kept,,0.4799948038451546,0.03497376967274544,float64
+Country_latitude,kept,,0.4799948038451546,0.03972020984261804,float64
+Country_gdp,kept,,0.4799948038451546,0.03972020984261804,float64
+Airport_distCity,kept,,0.4702520135100026,1.0,float64
+Country_gasoline_price,kept,,0.48181345804104964,0.022812735021308598,float64
+City_region,kept,,0.6547155105222136,0.036493604213694505,float64
+Airport_runwaysLength,kept,,0.3150168875032476,0.5566091409065048,float64
+Country_armed_forces,kept,,0.481943361912185,0.025325977933801404,float64
+Country_unemployment,kept,,0.480514419329696,0.03650912728182046,float64
+Country_life_expectancy,kept,,0.4799948038451546,0.029228078940794405,float64
+Country_health_expenditure,kept,,0.48272278513899713,0.03465595178302361,float64
+Country_land_area,kept,,0.4799948038451546,0.03972020984261804,float64
+Airport_latitude,kept,,0.0,0.9980514419329696,float64
+Country_total_tax_rate,kept,,0.4828526890101325,0.034162270786234614,float64
+Country_region_code,kept,,0.46882307092751363,0.001222792858889704,float64
+Country_maternal_mortality,kept,,0.48012470771628996,0.02498750624687656,float64
+Airport_runwaysWidth,kept,,0.3150168875032476,0.06732410392565902,float64
+Country_agricultural_land,kept,,0.4799948038451546,0.03672245815638271,float64
+Country_fertility_rate,kept,,0.4799948038451546,0.030976767424431676,float64
+Country_infant_mortality,kept,,0.4799948038451546,0.031476392705470896,float64
+Country_calling_code,kept,,0.4799948038451546,0.037222083437421935,float64
+Country_minimum_wage,kept,,0.5249415432579891,0.028985507246376812,float64
+Country_education_tertiary,kept,,0.4828526890101325,0.03692539562923888,float64
+Airport_timezone,kept,,0.04585606651078202,0.005445881552076242,float64
+Country_tax_revenue,kept,,0.49363471031436734,0.02642380708055413,float64
+Country_co2_emissions,kept,,0.4799948038451546,0.039470397202098426,float64
+Country_longitude,kept,,0.4799948038451546,0.03972020984261804,float64
+Country_education_primary,kept,,0.48038451545856065,0.03125,float64
+Airport_longitude,kept,,0.0,0.9984411535463756,float64
+Country_birth_rate,kept,,0.4799948038451546,0.03672245815638271,float64
+Country_labor_participation,kept,,0.480514419329696,0.033008252063015754,float64
+Country_population,kept,,0.4799948038451546,0.03972020984261804,float64
+Country_country_code,kept,,0.46882307092751363,0.042797750061139644,float64
+Country_cpi_change,kept,,0.48376201610808,0.0206341217916457,float64
+Airport_airport_id,kept,,0.0,1.0,float64
+Country_urban_population,kept,,0.4799948038451546,0.03972020984261804,float64
+Country_cpi,kept,,0.4892179786957651,0.0378942014242116,float64
+Country_sub_region_code,kept,,0.46882307092751363,0.004157495720224994,float64
+Airport_altitude,kept,,0.0,0.3276175630033775,float64
+Airport_runways,kept,,0.3150168875032476,0.0017068082685378343,float64
+City_population,kept,,0.4702520135100026,0.870524767042668,float64
+Country_physicians,kept,,0.4799948038451546,0.03297526854858856,float64
+Country_intermediate_region_code,dropped,null_ratio>thr,0.8732138217718888,0.007172131147540984,float64
+ROUTE_TO__neighbor__avg_latitude,kept,,0.5824889581709535,0.8397635345364033,float64
+ROUTE_TO__neighbor__avg_altitude,kept,,0.5824889581709535,0.7657125077784692,float64
+ROUTE_TO__neighbor__avg_airport_id,kept,,0.5824889581709535,0.8288736776602365,float64
+ROUTE_TO__neighbor__avg_distCity,kept,,0.6256170433878929,0.7453157529493407,float64
+ROUTE_TO__neighbor__avg_runways,kept,,0.5843076123668486,0.323125,float64
+ROUTE_TO__neighbor__avg_runwaysLength,kept,,0.5843076123668486,0.8078125,float64
+ROUTE_TO__neighbor__avg_runwaysWidth,kept,,0.5843076123668486,0.55625,float64
+ROUTE_TO__rel__avg_stops,kept,,0.5824889581709535,0.005289359054138146,float64
+ROUTE_TO__rel__avg_distance,kept,,0.5824889581709535,0.9993777224642191,float64
+ROUTE_TO__rel__avg_price,kept,,0.6218498311249675,0.9986259017519753,float64
+ROUTE_TO__rel__avg_duration,kept,,0.6218498311249675,0.9989694263139814,float64
+PASSENGERS__neighbor__avg_latitude,dropped,null_ratio>thr,0.9140036373083917,0.8051359516616314,float64
+PASSENGERS__neighbor__avg_longitude,dropped,null_ratio>thr,0.9140036373083917,0.8051359516616314,float64
+PASSENGERS__neighbor__avg_altitude,dropped,null_ratio>thr,0.9140036373083917,0.7885196374622356,float64
+PASSENGERS__neighbor__avg_airport_id,dropped,null_ratio>thr,0.9140036373083917,0.797583081570997,float64
+PASSENGERS__neighbor__avg_distCity,dropped,null_ratio>thr,0.9154325798908808,0.7803379416282642,float64
+PASSENGERS__neighbor__avg_runways,dropped,null_ratio>thr,0.9140036373083917,0.4954682779456193,float64
+PASSENGERS__neighbor__avg_runwaysLength,dropped,null_ratio>thr,0.9140036373083917,0.8036253776435045,float64
+PASSENGERS__neighbor__avg_runwaysWidth,dropped,null_ratio>thr,0.9140036373083917,0.6948640483383686,float64
+PASSENGERS__rel__avg_year,dropped,null_ratio>thr,0.9140036373083917,0.36253776435045315,float64
+PASSENGERS__rel__avg_nb_passengers,dropped,null_ratio>thr,0.9179007534424526,1.0,float64
+Airport_commercial_flights,dropped,unwanted,not analyzed,not analyzed,float64
+City_purchasing_power_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_safety_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_climate_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_property_price_to_income_ratio,dropped,unwanted,not analyzed,not analyzed,float64
+City_traffic_commute_time_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_quality_of_life_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_health_care_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_rank,dropped,unwanted,not analyzed,not analyzed,float64
+City_pollution_index,dropped,unwanted,not analyzed,not analyzed,float64
+City_cost_of_living_index,dropped,unwanted,not analyzed,not analyzed,float64
+ROUTE_TO__neighbor__avg_commercial_flights,dropped,unwanted,not analyzed,not analyzed,float64
+PASSENGERS__neighbor__avg_commercial_flights,dropped,unwanted,not analyzed,not analyzed,float64
+City_longitude,dropped,correlated,N/A,N/A,float64
+City_latitude,dropped,correlated,N/A,N/A,float64
+ROUTE_TO__neighbor__avg_longitude,dropped,correlated,N/A,N/A,float64
+PASSENGERS__rel__avg_nb_seats,dropped,correlated,N/A,N/A,float64

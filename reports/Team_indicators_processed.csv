@@ -1,0 +1,125 @@
+column,action,reason,null_ratio,distinct_ratio,dtype_before
+Team_betweennessScore,kept,,0.0,0.08163265306122448,float64
+Team_pagerank,kept,,0.0,0.7026239067055393,float64
+Team_eigenvectorScore,kept,,0.0,0.06705539358600583,float64
+Team_closenessScore,kept,,0.0,0.0058309037900874635,float64
+Team_degreeScore,kept,,0.0,0.0058309037900874635,float64
+Team_teamID,dropped,null_ratio>thr,0.9504373177842566,0.8235294117647058,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_pagerank,kept,,0.0,0.12536443148688048,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_eigenvectorScore,kept,,0.0,0.12536443148688048,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_degreeScore,kept,,0.0,0.0029154518950437317,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_closenessScore,kept,,0.0,0.026239067055393587,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_betweennessScore,kept,,0.0,0.12536443148688048,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_articleRankScore,kept,,0.0,0.12536443148688048,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_2crdy,kept,,0.0,0.03206997084548105,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_mn/sub,kept,,0.0,0.061224489795918366,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_fld,kept,,0.0,0.7055393586005831,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_pkatt,kept,,0.0,0.061224489795918366,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_90g+a-pk,kept,,0.0,0.5335276967930029,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_mn/sub,kept,,0.0,0.08163265306122448,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_90ast,kept,,0.0,0.3848396501457726,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_pkm,kept,,0.0,0.014577259475218658,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_cs%,kept,,0.0,0.33819241982507287,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_og,kept,,0.0,0.026239067055393587,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_subs,kept,,0.0,0.43731778425655976,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent advanced goalkeeping_90s,kept,,0.0,0.08746355685131195,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent advanced goalkeeping_# pl,kept,,0.0,0.023323615160349854,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_sh/90,kept,,0.0,0.8017492711370262,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_sota,kept,,0.0,0.5014577259475219,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_cs%,kept,,0.0,0.3673469387755102,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad defensive_tackles tklw,kept,,0.0,0.6793002915451894,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_crdy,kept,,0.0,0.34110787172011664,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent passing_ast,kept,,0.0,0.21282798833819241,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_unsub,kept,,0.0,0.5918367346938775,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_ppm,kept,,0.0,0.4489795918367347,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_pksv,kept,,0.0,0.023323615160349854,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_mn/mp,kept,,0.0,0.02040816326530612,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent defensive_# pl,kept,,0.0,0.10787172011661808,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_onga,kept,,0.0,0.27405247813411077,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_saves,kept,,0.0,0.39067055393586003,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_g/sh,kept,,0.0,0.07580174927113703,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_crdr,kept,,0.0,0.043731778425655975,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_crs,kept,,0.0,0.7959183673469388,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_ong,kept,,0.0,0.27113702623906705,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_g/sot,kept,,0.0,0.18075801749271136,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_crdr,kept,,0.0,0.05539358600583091,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_pksv,kept,,0.0,0.023323615160349854,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_90gls,kept,,0.0,0.44314868804664725,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_sot/90,kept,,0.0,0.6326530612244898,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_g/sh,kept,,0.0,0.09620991253644315,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_sot%,kept,,0.0,0.4577259475218659,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_crdy,kept,,0.0,0.3294460641399417,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_og,kept,,0.0,0.029154518950437316,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_w,kept,,0.0,0.10495626822157435,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_pkatt,kept,,0.0,0.06997084548104957,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_l,kept,,0.0,0.119533527696793,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_d,kept,,0.0,0.08163265306122448,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_pk,kept,,0.0,0.05539358600583091,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_cs,kept,,0.0,0.08746355685131195,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_age,kept,,0.0,0.282798833819242,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_fls,kept,,0.0,0.7405247813411079,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_save%,kept,,0.0,0.5685131195335277,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_off,kept,,0.0,0.31486880466472306,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad defensive_int,kept,,0.0,0.6297376093294461,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_crs,kept,,0.0,0.7959183673469388,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_sh/90,kept,,0.0,0.8104956268221575,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_age,kept,,0.0,0.20116618075801748,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_90g+a-pk,kept,,0.0,0.5451895043731778,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_sot/90,kept,,0.0,0.6268221574344023,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_+/-90,kept,,0.0,0.5568513119533528,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad passing_ast,kept,,0.0,0.20699708454810495,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent defensive_int,kept,,0.0,0.6676384839650146,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_90g-pk,kept,,0.0,0.40233236151603496,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_+/-,kept,,0.0,0.29737609329446063,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_off,kept,,0.0,0.358600583090379,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_90ast,kept,,0.0,0.36443148688046645,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_ga90,kept,,0.0,0.4314868804664723,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_g/sot,kept,,0.0,0.16326530612244897,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_save%,kept,,0.0,0.5364431486880467,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_sot%,kept,,0.0,0.4752186588921283,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad advanced goalkeeping_pka,kept,,0.0,0.05830903790087463,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_cs,kept,,0.0,0.09037900874635568,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_ppm,kept,,0.0,0.4402332361516035,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent possession_poss,kept,,0.0,0.5714285714285714,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_sh,kept,,0.0,0.7259475218658892,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent defensive_tackles tklw,kept,,0.0,0.7026239067055393,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_pkm,kept,,0.0,0.011661807580174927,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad misc_2crdy,kept,,0.0,0.023323615160349854,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_unsub,kept,,0.0,0.5451895043731778,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_mn/start,kept,,0.0,0.04956268221574344,float64
+PLAYED_FOR__neighbor__avg_born,dropped,null_ratio>thr,0.21865889212827988,0.9514925373134329,float64
+Team_articleRankScore,dropped,correlated,N/A,N/A,float64
+Team_pageRankScore,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__neighbor__avg_pageRankScore,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_g+a,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_compl,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_ga90,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_sot,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad advanced goalkeeping_ga,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_subs,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_sot,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_90g+a,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_sh,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_g-pk,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_g+a,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent advanced goalkeeping_pka,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad goalkeeping_saves,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad standard_90g-pk,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_fld,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_pkatt,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_g-pk,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent misc_fls,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_90g+a,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent advanced goalkeeping_ga,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_pkatt,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_+/-,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent playing time_+/-90,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad shooting_gls,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad possession_poss,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_gls,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_squad playing time_compl,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_sota,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent standard_90gls,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent shooting_pk,dropped,correlated,N/A,N/A,float64
+TEAM_STATS_IN_LEAGUE__rel__avg_opponent goalkeeping_mp,dropped,correlated,N/A,N/A,float64
+PLAYED_FOR,dropped,correlated,N/A,N/A,int64
