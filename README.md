@@ -4,6 +4,8 @@
 
 This code has been tested with Python 3.12 and Neo4J 5.x. To install the required packages, we recommend the use of a Python virtual environment.
 
+A Java Development Kit (JDK) version 21 or 25 is also required to run the local Neo4J database instance. At the time of writing, more recent versions (such as JDK 26) are not supported and may prevent Neo4J Desktop from starting correctly.
+
 ```
 python -m venv venv
 source venv/bin/activate
