@@ -18,24 +18,40 @@ Sample data are provided in this repository. To use your own data, you need to s
 
 To extract indicators from property graphs, use the `collect_indicators.py` script. This script uses command-line arguments to specify the Neo4J database and parameters:
 
-- `r`: the number of runs
-- `dh`: the threshold for acceptable variance (high)
-- `dl`: the threshold for acceptable variance (low)
-- `c`: the threshold for non-redundancy (Pearson's correlation)
-- `n`: the threshold for acceptable density
-- `u`: a list of suffixes for discarding properties
-- `-pushdown`: if unwanted properties, acceptable density (validation) are pushed down indicator collection
-- `-keep-nulls`: to remove nodes with at least one null value
-- `-create-index`: to create all indices on numerical properties
-- `config`: the json file for the Neo4j database configuration (see examples in the config subdirectory)
+* `r`: the number of runs
+* `dh`: the threshold for acceptable variance (high)
+* `dl`: the threshold for acceptable variance (low)
+* `c`: the threshold for non-redundancy (Pearson's correlation)
+* `n`: the threshold for acceptable density
+* `u`: a list of suffixes for discarding properties
+* `-pushdown`: if unwanted properties, acceptable density (validation) are pushed down indicator collection
+* `-keep-nulls`: to remove nodes with at least one null value
+* `-create-index`: to create all indices on numerical properties
+* `config`: the json file for the Neo4j database configuration (see examples in the config subdirectory)
+
+### Example command
+
+You can run the indicator extraction using the following command:
+
+```
+python3 collect_indicators.py configs/airports.json \
+    --runs 1 \
+    --distinct-low 0.000001 \
+    --distinct-high 1 \
+    --correlation-threshold 0.98 \
+    --null-threshold 0.1 \
+    --unwanted-suffixes _id _zipcode \
+    --pushdown \
+    --create-index
+```
 
 ## Solving the Partition/Clustering problem
 
-To run the clustering and indicator partition heuristics, use the `main.py`  script. This script uses command-line arguments to specify datasets and parameters:
+To run the clustering and indicator partition heuristics, use the `main.py` script. This script uses command-line arguments to specify datasets and parameters:
 
-- `-k`: the number of clusters desired
-- `-steps`: To limit the local search steps
-- `-method`: ls : local search, exp : full tree enumeration, sls: 'simple' start local search
-- `-dataset`: Use one of : iris (debug only), airports, movies, directors, actors or custom
-- `-path`: the path to the dataset (custom only, must be a CSV file with a header)
-- `-delimiter` : for custom dataset
+* `-k`: the number of clusters desired
+* `-steps`: To limit the local search steps
+* `-method`: ls : local search, exp : full tree enumeration, sls: 'simple' start local search
+* `-dataset`: Use one of : iris (debug only), airports, movies, directors, actors or custom
+* `-path`: the path to the dataset (custom only, must be a CSV file with a header)
+* `-delimiter` : for custom dataset
