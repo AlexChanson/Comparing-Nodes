@@ -81,7 +81,22 @@ git clone https://github.com/AlexChanson/Comparing-Nodes.git
 
 ### 9. Create the virtual environment and install dependencies
 
-Open the project in VS Code and execute the following commands in the integrated terminal:
+Before creating the virtual environment, make sure that VS Code is using the correct Python interpreter (Python 3.12). Otherwise, the virtual environment may use another Python version installed on your machine (for example the most recent one), which may not be compatible with this project.
+
+To select the correct Python interpreter in VS Code:
+
+- Open the Command Palette:
+  - macOS: `Cmd + Shift + P`
+  - Windows/Linux: `Ctrl + Shift + P`
+- Type:
+
+```
+Python: Select Interpreter
+```
+
+- Select a Python 3.12 interpreter from the list
+
+Then open the project in VS Code and execute the following commands in the integrated terminal:
 
 ```
 python -m venv venv
