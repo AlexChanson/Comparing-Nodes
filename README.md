@@ -1,16 +1,129 @@
 # Extracting node comparison insights for the interactive exploration of property graphs
 
-### Requirements
+## Requirements and setup guide
 
-This code has been tested with Python 3.12 and Neo4J 5.x. To install the required packages, we recommend the use of a Python virtual environment.
+This code has been tested with Python 3.12 and Neo4J 5.x.
 
 A Java Development Kit (JDK) version 21 or 25 is also required to run the local Neo4J database instance. At the time of writing, more recent versions (such as JDK 26) are not supported and may prevent Neo4J Desktop from starting correctly.
+
+### 1. Install a code editor
+
+Install VS Code (recommended), or any editor of your choice:
+
+https://code.visualstudio.com/
+
+### 2. Install Python 3.12
+
+Install the latest security release of Python 3.12 from the official Python website:
+
+https://www.python.org/downloads/
+
+Click on the **Download** button, select your operating system, and install a Python 3.12 version.
+
+### 3. Install the Java Development Kit (JDK)
+
+Install JDK 25 from the official Oracle website:
+
+https://www.oracle.com/fr/java/technologies/downloads/#java25
+
+### 4. Install Neo4J Desktop
+
+Download and install Neo4J Desktop:
+
+https://neo4j.com/download/
+
+### 5. Install VS Code extensions
+
+In VS Code, install the following extensions:
+
+- Python (official Microsoft extension):
+  https://marketplace.visualstudio.com/items?itemName=ms-python.python
+
+- Pylance:
+  https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance
+
+Pylance provides intelligent code analysis and autocompletion for Python projects.
+
+### 6. Create a Neo4J database instance
+
+In Neo4J Desktop:
+
+- Create a new instance
+- Give it a name
+- Select a Neo4J version if not already selected automatically
+- Optionally import a `.dump` file containing graph data (for example the airports dataset)
+
+### 7. Install the APOC plugin
+
+After creating the instance:
+
+- Click on the button represented by the three dots
+- Open the **Plugins** section
+- Install the plugin named **APOC**
+
+This plugin is required to execute some graph algorithms.
+
+You can explore the graph by clicking on the **Explore** section in the Neo4J Desktop sidebar.
+
+### 8. Clone the repository
+
+Create a directory where you want to store the project.
+
+In VS Code:
+
+- Open the directory
+- Open a terminal
+- Clone the repository with the following command:
+
+```
+git clone https://github.com/AlexChanson/Comparing-Nodes.git
+```
+
+### 9. Create the virtual environment and install dependencies
+
+Open the project in VS Code and execute the following commands in the integrated terminal:
 
 ```
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### 10. Configure the Neo4J connection
+
+In the JSON configuration file located in the `configs` directory:
+
+- Replace the `home` field with the path to your Neo4J database instance
+- Fill the `username` and `password` fields using the credentials chosen during the Neo4J instance setup
+
+### 11. Manage the Neo4J database instance
+
+Before executing the `collect_indicators.py` script, make sure that the Neo4J database instance is not currently running.
+
+To control the database instance:
+
+- Retrieve the path to the Neo4J instance
+- Append `/bin/neo4j` to the path
+- Use one of the following commands:
+  - `start` to start the instance
+  - `stop` to stop the instance
+  - `status` to check whether the instance is running
+
+The expected state before running the script is:
+
+```
+Neo4j is not running
+```
+
+### 12. Example command
+
+Example command to check the database status:
+
+```
+"neo4j_instance_path/bin/neo4j" status
+```
+
+---
 
 ### Using custom datasets
 
