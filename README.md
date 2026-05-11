@@ -75,11 +75,23 @@ In VS Code:
 - Open a terminal
 - Clone the repository with the following command:
 
-```
+```bash
 git clone https://github.com/AlexChanson/Comparing-Nodes.git
 ```
 
-### 9. Create the virtual environment and install dependencies
+### 9. Create the `reports` directory
+
+After cloning the repository, create a directory named `reports` at the root of the project:
+
+```bash
+mkdir reports
+```
+
+This directory is required by the `collect_indicators.py` script to store generated CSV reports, validation summaries, execution metrics, and LaTeX exports used for performance analysis and scientific reporting.
+
+If the directory does not exist, the script may fail when exporting results.
+
+### 10. Create the virtual environment and install dependencies
 
 Before creating the virtual environment, make sure that VS Code is using the correct Python interpreter (Python 3.12). Otherwise, the virtual environment may use another Python version installed on your machine (for example the most recent one), which may not be compatible with this project.
 
@@ -90,7 +102,7 @@ To select the correct Python interpreter in VS Code:
   - Windows/Linux: `Ctrl + Shift + P`
 - Type:
 
-```
+```text
 Python: Select Interpreter
 ```
 
@@ -98,20 +110,20 @@ Python: Select Interpreter
 
 Then open the project in VS Code and execute the following commands in the integrated terminal:
 
-```
+```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 10. Configure the Neo4J connection
+### 11. Configure the Neo4J connection
 
 In the JSON configuration file located in the `configs` directory:
 
 - Replace the `home` field with the path to your Neo4J database instance
 - Fill the `username` and `password` fields using the credentials chosen during the Neo4J instance setup
 
-### 11. Manage the Neo4J database instance
+### 12. Manage the Neo4J database instance
 
 Before executing the `collect_indicators.py` script, make sure that the Neo4J database instance is not currently running.
 
@@ -126,15 +138,15 @@ To control the database instance:
 
 The expected state before running the script is:
 
-```
+```text
 Neo4j is not running
 ```
 
-### 12. Example command
+### 13. Example command
 
 Example command to check the database status:
 
-```
+```bash
 "neo4j_instance_path/bin/neo4j" status
 ```
 
@@ -163,7 +175,7 @@ To extract indicators from property graphs, use the `collect_indicators.py` scri
 
 You can run the indicator extraction using the following command:
 
-```
+```bash
 python3 collect_indicators.py configs/airports.json \
     --runs 1 \
     --distinct-low 0.000001 \
