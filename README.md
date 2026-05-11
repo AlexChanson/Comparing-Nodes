@@ -161,13 +161,13 @@ Sample data are provided in this repository. To use your own data, you need to s
 To extract indicators from property graphs, use the `collect_indicators.py` script. This script uses command-line arguments to specify the Neo4J database and parameters:
 
 * `config`: the json file for the Neo4j database configuration (see examples in the config subdirectory)
-* `-r` or `--runs`: the number of runs
-* `-a` or `--agg-config`: path to a CSV file for aggregation configuration
-* `-dl` or `--distinct-low`: the threshold for acceptable variance (low)
-* `-dh` or `--distinct-high`: the threshold for acceptable variance (high)
-* `-c` or `--correlation-threshold`: the threshold for non-redundancy (Pearson's correlation)
-* `-n` or `--null-threshold`: the threshold for acceptable density
-* `-u` or `--unwanted-suffixes`: a list of suffixes for discarding properties
+* `-r` (or `--runs`): the number of runs
+* `-a` (or `--agg-config`): path to a CSV file for aggregation configuration
+* `-dl` (or `--distinct-low`): the threshold for acceptable variance (low)
+* `-dh` (or `--distinct-high`): the threshold for acceptable variance (high)
+* `-c` (or `--correlation-threshold`): the threshold for non-redundancy (Pearson's correlation)
+* `-n` (or `--null-threshold`): the threshold for acceptable density
+* `-u` (or `--unwanted-suffixes`): a list of suffixes for discarding properties
 * `--pushdown`: if unwanted properties and acceptable density validation are pushed down during indicator collection
 * `--keep-nulls`: remove lines with at least one null value
 * `--create-index`: create all indices on numerical properties
