@@ -211,8 +211,21 @@ python3 collect_indicators.py configs/airports.json \
 To run the clustering and indicator partition heuristics, use the `main.py` script. This script uses command-line arguments to specify datasets and parameters:
 
 * `-k`: the number of clusters desired
-* `-steps`: To limit the local search steps
-* `-method`: ls : local search, exp : full tree enumeration, sls: 'simple' start local search
-* `-dataset`: Use one of : iris (debug only), airports, movies, directors, actors or custom
+* `-steps`: to limit the local search steps
+* `-method`: `ls` for local search, `exp` for full tree enumeration, `sls` for 'simple' start local search
+* `-dataset`: use one of: `iris` (debug only), `airports`, `movies`, `directors`, `actors`, or `custom`
 * `-path`: the path to the dataset (custom only, must be a CSV file with a header)
-* `-delimiter` : for custom dataset
+* `-delimiter`: delimiter used for custom datasets
+
+### Example command
+
+You can run the clustering process on a custom dataset using the following command:
+
+```bash
+python3 main.py \
+    --dataset custom \
+    --path data/Player_indicators_processed_nonulls.csv \
+    --method ls \
+    --k 3 \
+    configs/soccer.json
+```
