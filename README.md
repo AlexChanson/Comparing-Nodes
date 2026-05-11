@@ -116,6 +116,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+To verify that the virtual environment is correctly using Python 3.12, you can execute one of the following commands:
+
+```bash
+python3 --version
+```
+
+or
+
+```bash
+python --version
+```
+
+For example, this may return:
+
+```text
+Python 3.12.9
+```
+
 ### 11. Configure the Neo4J connection
 
 In the JSON configuration file located in the `configs` directory:
