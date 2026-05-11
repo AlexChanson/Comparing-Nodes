@@ -12,7 +12,6 @@ prettyprint
 scipy>1.1
 pandas>2.3
 skfeature-chappers
-skfeature~=1.0.0
 seaborn
 psutil~=7.0.0
 kneed~=0.8.5
