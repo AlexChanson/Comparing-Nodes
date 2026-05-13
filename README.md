@@ -32,7 +32,44 @@ Download and install Neo4J Desktop:
 
 https://neo4j.com/download/
 
-### 5. Install VS Code extensions
+### 5. Install LaTeX
+
+Some scripts of this project generate LaTeX reports and scientific exports. To compile and visualize `.tex` files locally, a LaTeX distribution must be installed on your machine.
+
+#### Windows
+
+Install MiKTeX:
+
+https://miktex.org/
+
+MiKTeX automatically installs missing LaTeX packages when needed, which makes it convenient for VS Code users.
+
+#### macOS
+
+Install MacTeX:
+
+https://www.tug.org/mactex/
+
+#### Linux
+
+Install TeX Live:
+
+https://www.tug.org/texlive/
+
+For Debian/Ubuntu distributions, you can also install it directly with:
+
+```bash
+sudo apt update
+sudo apt install texlive-full
+```
+
+After installation, you can verify that LaTeX is correctly installed by executing:
+
+```bash
+pdflatex --version
+```
+
+### 6. Install VS Code extensions
 
 In VS Code, install the following extensions:
 
@@ -42,9 +79,31 @@ In VS Code, install the following extensions:
 - Pylance:
   https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-pylance
 
+- LaTeX Workshop:
+  https://marketplace.visualstudio.com/items?itemName=James-Yu.latex-workshop
+
 Pylance provides intelligent code analysis and autocompletion for Python projects.
 
-### 6. Create a Neo4J database instance
+LaTeX Workshop enables LaTeX compilation, PDF visualization, syntax highlighting, and auto-completion directly inside VS Code.
+
+To compile a `.tex` file in VS Code:
+
+- Open the `.tex` file
+- Press:
+
+```text
+Ctrl + Alt + B
+```
+
+This command generates a PDF document from the LaTeX source.
+
+To visualize the generated PDF inside VS Code:
+
+```text
+Ctrl + Alt + V
+```
+
+### 7. Create a Neo4J database instance
 
 In Neo4J Desktop:
 
@@ -53,7 +112,7 @@ In Neo4J Desktop:
 - Select a Neo4J version if not already selected automatically
 - Optionally import a `.dump` file containing graph data (for example the airports dataset)
 
-### 7. Install the APOC plugin
+### 8. Install the APOC plugin
 
 After creating the instance:
 
@@ -65,7 +124,7 @@ This plugin is required to execute some graph algorithms.
 
 You can explore the graph by clicking on the **Explore** section in the Neo4J Desktop sidebar.
 
-### 8. Clone the repository
+### 9. Clone the repository
 
 Create a directory where you want to store the project.
 
@@ -79,7 +138,7 @@ In VS Code:
 git clone https://github.com/AlexChanson/Comparing-Nodes.git
 ```
 
-### 9. Create the `reports` directory
+### 10. Create the `reports` directory
 
 After cloning the repository, create a directory named `reports` at the root of the project:
 
@@ -91,7 +150,7 @@ This directory is required by the `collect_indicators.py` script to store genera
 
 If the directory does not exist, the script may fail when exporting results.
 
-### 10. Create the virtual environment and install dependencies
+### 11. Create the virtual environment and install dependencies
 
 Before creating the virtual environment, make sure that VS Code is using the correct Python interpreter (Python 3.12). Otherwise, the virtual environment may use another Python version installed on your machine (for example the most recent one), which may not be compatible with this project.
 
@@ -134,14 +193,14 @@ For example, this may return:
 Python 3.12.9
 ```
 
-### 11. Configure the Neo4J connection
+### 12. Configure the Neo4J connection
 
 In the JSON configuration file located in the `configs` directory:
 
 - Replace the `home` field with the path to your Neo4J database instance
 - Fill the `username` and `password` fields using the credentials chosen during the Neo4J instance setup
 
-### 12. Manage the Neo4J database instance
+### 13. Manage the Neo4J database instance
 
 Before executing the `collect_indicators.py` script, make sure that the Neo4J database instance is not currently running.
 
@@ -160,7 +219,7 @@ The expected state before running the script is:
 Neo4j is not running
 ```
 
-### 13. Example command
+### 14. Example command
 
 Example command to check the database status:
 
