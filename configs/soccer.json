@@ -1,11 +1,23 @@
 {
-  "name": "soccer",
-  "labels": ["Player", "Team"],
-  "home": "C:/Users/Leoga/.Neo4jDesktop2/Data/dbmss/dbms-b4d6d326-6abc-4160-8e7b-bbae46faca2e",
-  "number_of_node": 9819,
-  "number_of_edge": 25385,
-  "avg_properties_node": 3.941,
-  "avg_properties_edge": 39.97,
-  "username": "neo4j",
-  "password": "neo4jneo4j"
+  "database": {
+    "type": "Neo4J",
+    "host": "localhost:7687",
+    "username": "neo4j",
+    "password": "neo4jneo4j",
+    "name": "airports"
+  },
+  "algorithm-1": {
+    "type": "base",
+    "target_labels": [
+      "Team"
+    ],
+    "discarded": [],
+    "min_density": 0.1,
+    "min_var": 0.1,
+    "max_var": 0.9,
+    "correlation_threshold": 0.8
+  },
+  "algorithm-2": {
+    "type": "base"
+  }
 }

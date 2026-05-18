@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from numba import njit
 from scipy.stats import rankdata
+import json
+
 
 def percentile_rank(data):
     """
@@ -152,15 +154,9 @@ def remove_rows_with_nulls(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned_df
 
 
-# ---------- Example ----------
-if __name__ == "__main__":
-    feats = {
-        "even_grid": [1, 2, 3, 4, 5, 6],  # → comparison (evenly spaced)
-        "bimodal": [1, 1.2, 1.1, 5, 5.1, 5.2, 5.3],  # → clustering (bimodal)
-        "messy": [1, 1, 3, 5, 5, 6.7, 6.8, 7.4],  # → unused (neither)
-        "tiny": [0, 1, 2],  # too few points
-    }
 
-    out = analyze_features(feats)
-    for k, v in out.items():
-        print(k, "->", v["category"], "|", v["reason"], "| BC:", v["bc"], "CV:", v["cv_spacings"])
+def json_config_file_parser(path):
+    with open(path, 'r', encoding='utf-8') as file:
+        # Parse the JSON file into a Python dictionary
+        data = json.load(file)
+    return data
