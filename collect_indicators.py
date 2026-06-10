@@ -65,7 +65,6 @@ class Neo4jConnector:
              apoc.text.join(labels(t),'|')  AS endLabels
         WITH DISTINCT relType, startLabels, endLabels
 
-        // Syntaxe moderne Neo4j 5.28 : Déclaration explicite du scope entre parenthèses
         CALL (relType, startLabels, endLabels) {
           MATCH (sx)
           WHERE apoc.text.join(labels(sx),'|')  = startLabels
@@ -79,7 +78,6 @@ class Neo4jConnector:
             count(sx)   AS startPopulation
         }
 
-        // Syntaxe moderne Neo4j 5.28 : Déclaration explicite du scope entre parenthèses
         CALL (relType, startLabels, endLabels) {
           MATCH (ty)
           WHERE apoc.text.join(labels(ty),'|')  = endLabels
@@ -189,7 +187,7 @@ class Neo4jConnector:
             )
             ] AS maps
             WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
-            WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
+            WHERE size(keys(mergedNumericProperties)) > 0   
             RETURN elementId(n) AS rootId,
             mergedNumericProperties;
             """
@@ -212,7 +210,7 @@ class Neo4jConnector:
                         )
                         ] AS maps
                         WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
-                        WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
+                        WHERE size(keys(mergedNumericProperties)) > 0  
                         RETURN elementId(n) AS rootId,
                         mergedNumericProperties;
                         """
@@ -640,7 +638,6 @@ class Neo4jConnector:
                 RETURN collect(DISTINCT k) AS rel_names
             }
             WITH node_names, rel_names
-            // Dédoublonnement natif pour remplacer apoc.coll.toSet
             UNWIND (node_names + rel_names) AS combined_item
             WITH node_names, rel_names, collect(DISTINCT combined_item) AS unique_total
             
