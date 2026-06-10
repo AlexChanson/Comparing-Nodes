@@ -65,8 +65,8 @@ class Neo4jConnector:
              apoc.text.join(labels(t),'|')  AS endLabels
         WITH DISTINCT relType, startLabels, endLabels
 
-        CALL {
-          WITH relType, startLabels, endLabels
+        // Syntaxe moderne Neo4j 5.28 : Déclaration explicite du scope entre parenthèses
+        CALL (relType, startLabels, endLabels) {
           MATCH (sx)
           WHERE apoc.text.join(labels(sx),'|')  = startLabels
           OPTIONAL MATCH (sx)-[rx]->(tx)
@@ -79,8 +79,8 @@ class Neo4jConnector:
             count(sx)   AS startPopulation
         }
 
-        CALL {
-          WITH relType, startLabels, endLabels
+        // Syntaxe moderne Neo4j 5.28 : Déclaration explicite du scope entre parenthèses
+        CALL (relType, startLabels, endLabels) {
           MATCH (ty)
           WHERE apoc.text.join(labels(ty),'|')  = endLabels
           OPTIONAL MATCH (sy)-[ry]->(ty)
@@ -133,7 +133,7 @@ class Neo4jConnector:
                  [x IN nodes |
                     apoc.map.fromPairs(
                       [k IN keys(x)
-                         WHERE apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                         WHERE valueType(x[k]) CONTAINS "INTEGER" OR valueType(x[k]) CONTAINS "FLOAT"
                          | [head(labels(x)) + "_" + k, x[k]]
                       ]
                     )
@@ -153,7 +153,7 @@ class Neo4jConnector:
                              [x IN nodes |
                                 apoc.map.fromPairs(
                                   [k IN {props}
-                                     WHERE x[k] IS NOT NULL AND apoc.meta.cypher.type(x[k]) IN {NUMERIC_TYPES}
+                                     WHERE x[k] IS NOT NULL AND (valueType(x[k]) CONTAINS "INTEGER" OR valueType(x[k]) CONTAINS "FLOAT")
                                      | [head(labels(x)) + "_" + k, x[k]]
                                   ]
                                 )
@@ -176,20 +176,21 @@ class Neo4jConnector:
             WHERE
               all(rel IN relationships(p) WHERE
                    type(rel) in {many2one})
-            WITH n,
-            apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+            WITH n, apoc.coll.flatten(collect(relationships(p))) AS rawRels
+            WITH n, [r IN rawRels WHERE r IS NOT NULL | r] AS filteredRels
+            WITH n, apoc.coll.toSet(filteredRels) AS rels
             WITH n,
             [r IN rels |
             apoc.map.fromPairs(
               [k IN keys(r)
-                 WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+                 WHERE valueType(r[k]) CONTAINS "INTEGER" OR valueType(r[k]) CONTAINS "FLOAT"
                  | [type(r) + "_" + k, r[k]]
               ]
             )
             ] AS maps
             WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
             WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
-            RETURN id(n) AS rootId,
+            RETURN elementId(n) AS rootId,
             mergedNumericProperties;
             """
         return f"""
@@ -198,20 +199,21 @@ class Neo4jConnector:
                         WHERE
                           all(rel IN relationships(p) WHERE
                                type(rel) in {many2one})
-                        WITH n,
-                        apoc.coll.toSet(apoc.coll.flatten(collect(relationships(p)))) AS rels
+                        WITH n, apoc.coll.flatten(collect(relationships(p))) AS rawRels
+                        WITH n, [r IN rawRels WHERE r IS NOT NULL | r] AS filteredRels
+                        WITH n, apoc.coll.toSet(filteredRels) AS rels
                         WITH n,
                         [r IN rels |
                         apoc.map.fromPairs(
                           [k IN {props}
-                             WHERE apoc.meta.cypher.type(r[k]) IN ['INTEGER','FLOAT','Long','Double','Number']
+                             WHERE valueType(r[k]) CONTAINS "INTEGER" OR valueType(r[k]) CONTAINS "FLOAT"
                              | [type(r) + "_" + k, r[k]]
                           ]
                         )
                         ] AS maps
                         WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
                         WHERE size(keys(mergedNumericProperties)) > 0   // filter out empties
-                        RETURN id(n) AS rootId,
+                        RETURN elementId(n) AS rootId,
                         mergedNumericProperties;
                         """
 
@@ -236,13 +238,13 @@ class Neo4jConnector:
 
     def getAvgPropByElem(self, label):
         query = (
-            "CALL    {  MATCH(n:"
-            + label
-            + ")    WITH     n, [k IN keys(n) WHERE apoc.meta.cypher.type(n[k]) IN['INTEGER', 'FLOAT']] AS "
-            + " numericProps   RETURN    avg(size(numericProps))    AS    avgNodeNumericProps    }"
-            + "    CALL    {        MATCH() - [r] - ()    WITH    r, [k IN keys(r) WHERE apoc.meta.cypher.type(r[k]) IN['INTEGER', 'FLOAT']]"
-            + " AS    numericProps    RETURN    avg(size(numericProps))    AS    avgRelNumericProps    }"
-            + "    RETURN    avgNodeNumericProps, avgRelNumericProps;"
+            "CALL () { MATCH(n:" + label + ") WITH n, "
+            "[k IN keys(n) WHERE valueType(n[k]) CONTAINS 'INTEGER' OR valueType(n[k]) CONTAINS 'FLOAT'] AS numericProps "
+            "RETURN avg(size(numericProps)) AS avgNodeNumericProps } "
+            "CALL () { MATCH() - [r] - () WITH r, "
+            "[k IN keys(r) WHERE valueType(r[k]) CONTAINS 'INTEGER' OR valueType(r[k]) CONTAINS 'FLOAT'] AS numericProps "
+            "RETURN avg(size(numericProps)) AS avgRelNumericProps } "
+            "RETURN avgNodeNumericProps, avgRelNumericProps;"
         )
         return self.execute_query(query)
 
@@ -620,24 +622,30 @@ class Neo4jConnector:
 
     def count_numeric_properties(self):
         with self._driver.session() as session:
-            numeric_types = ["INTEGER", "FLOAT", "DOUBLE", "LONG"]
+            # Adaptation aux types retournés par valueType()
+            numeric_types = ["INTEGER", "FLOAT"]
             cypher = """
-            CALL {
+            CALL () {
                 MATCH (n)
                 UNWIND keys(n) AS k
-                WITH k, apoc.meta.cypher.type(n[k]) AS t
-                WHERE t IN $numeric_types
+                WITH k, valueType(n[k]) AS t
+                WHERE any(type IN $numeric_types WHERE t CONTAINS type)
                 RETURN collect(DISTINCT k) AS node_names
             }
-            CALL {
+            CALL () {
                 MATCH ()-[r]->()
                 UNWIND keys(r) AS k
-                WITH k, apoc.meta.cypher.type(r[k]) AS t
-                WHERE t IN $numeric_types
+                WITH k, valueType(r[k]) AS t
+                WHERE any(type IN $numeric_types WHERE t CONTAINS type)
                 RETURN collect(DISTINCT k) AS rel_names
             }
+            WITH node_names, rel_names
+            // Dédoublonnement natif pour remplacer apoc.coll.toSet
+            UNWIND (node_names + rel_names) AS combined_item
+            WITH node_names, rel_names, collect(DISTINCT combined_item) AS unique_total
+            
             RETURN node_names, rel_names, size(node_names) AS node_count, size(rel_names) AS rel_count,
-                size(apoc.coll.toSet(node_names + rel_names)) AS total   
+                size(unique_total) AS total   
             """
             rec = session.run(cypher, numeric_types=numeric_types).single()
             node_names = sorted(rec["node_names"])
