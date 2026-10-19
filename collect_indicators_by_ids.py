@@ -1,0 +1,1166 @@
+"""
+Collect indicators for all configured labels or for a specified set of Neo4j node IDs.
+The --node-ids file accepts numeric IDs from id(n), one per line. Lines beginning
+with # and blank lines are ignored. Relationship/cardinality/schema preprocessing
+is still computed by the existing pipeline; indicator rows are restricted to the
+selected IDs. This script expects to run from the same project directory as
+collect_indicators.py and its helper modules.
+"""
+
+import argparse
+import dataclasses
+import json
+import re
+import time
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any, Collection, Dict, List, Optional, Set, Tuple
+
+import analyzeIndicatorDevisingTimes
+import averageRunsCollectAndLatex
+import pandas as pd
+import plotPushdown
+import utility
+from contextualization import schema_hops_from_label, weight_df_by_schema_hops
+from many2many import aggregate_m2m_properties_for_label
+from neo4j import Driver, GraphDatabase, basic_auth
+from orchestrate_neo4j import DbSpec, start_dbms, stop_current_dbms, stop_dbms, wait_for_bolt
+from utility import outer_join_features
+from validation import drop_columns_by_suffix_with_report, export, process_dataframe, remove_correlated_columns
+
+NUMERIC_TYPES = [
+    # APOC meta cypher type names (Neo4j 4/5)
+    "INTEGER",
+    "FLOAT",
+    "Number",
+    "Long",
+    "Double",
+]
+
+class Neo4jConnector:
+    """A simple Neo4j connection manager and query runner."""
+
+    def __init__(self, uri: str, user: str, password: str, encrypted: bool = False, **driver_kwargs: Any) -> None:
+        self._driver = GraphDatabase.driver(uri, auth=basic_auth(user, password), encrypted=encrypted, **driver_kwargs)
+
+    def get_driver(self) -> Driver:
+        return self._driver
+
+    def close(self) -> None:
+        self._driver.close()
+
+    def execute_query(
+        self, query: str, parameters: Optional[Dict[str, Any]] = None, database: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        with self._driver.session(database=database) as session:
+            result = session.run(query, parameters or {})
+            return [record.data() for record in result]
+
+    def __enter__(self) -> "Neo4jConnector":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
+    def backtick_escape(self, label: str) -> str:
+        return label.replace("`", "``")
+
+    def detect_relationship_cardinalities(self):
+        query = """
+        MATCH (s)-[r]->(t)
+        WITH type(r) AS relType,
+             apoc.text.join(labels(s),'|')  AS startLabels,
+             apoc.text.join(labels(t),'|')  AS endLabels
+        WITH DISTINCT relType, startLabels, endLabels
+
+        CALL (relType, startLabels, endLabels) {
+          MATCH (sx)
+          WHERE apoc.text.join(labels(sx),'|')  = startLabels
+          OPTIONAL MATCH (sx)-[rx]->(tx)
+          WHERE type(rx) = relType
+            AND apoc.text.join(labels(tx),'|')  = endLabels
+          WITH sx, count(rx) AS outCnt
+          RETURN
+            min(outCnt) AS minOut,
+            max(outCnt) AS maxOut,
+            count(sx)   AS startPopulation
+        }
+
+        CALL (relType, startLabels, endLabels) {
+          MATCH (ty)
+          WHERE apoc.text.join(labels(ty),'|')  = endLabels
+          OPTIONAL MATCH (sy)-[ry]->(ty)
+          WHERE type(ry) = relType
+            AND apoc.text.join(labels(sy),'|')  = startLabels
+          WITH ty, count(ry) AS inCnt
+          RETURN
+            min(inCnt) AS minIn,
+            max(inCnt) AS maxIn,
+            count(ty)  AS endPopulation
+        }
+
+        RETURN
+          relType,
+          startLabels,
+          endLabels,
+          startPopulation,
+          endPopulation,
+          minOut, maxOut, minIn, maxIn,
+          CASE
+            WHEN minOut >= 1 AND maxOut <= 1 AND minIn >= 1 AND maxIn <= 1 THEN 'one-to-one'
+            WHEN minOut >= 0 AND maxIn <= 1 THEN 'one-to-many'
+            WHEN maxOut <= 1 AND minIn >= 0 THEN 'many-to-one'
+            ELSE 'many-to-many'
+          END AS cardinality
+        ORDER BY relType, startLabels, endLabels
+        """
+
+        result = self.execute_query(query)
+        return [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-one'], [
+            rec['relType'] for rec in result if rec['cardinality'] == 'many-to-many'
+        ]
+
+    def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep, node_ids=None) -> str:
+        lbl = self.backtick_escape(label)
+        depth = "" if max_depth is None else str(int(max_depth))
+        props = to_keep
+        start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
+
+        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
+
+        if to_keep == []:
+            return f"""
+            {start_match}
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE
+              all(rel IN relationships(p) WHERE
+                  type(rel) in {many2one})
+            WITH n, collect(DISTINCT m) + n AS nodes
+            WITH n,
+                 [x IN nodes |
+                    apoc.map.fromPairs(
+                      [k IN keys(x)
+                         WHERE valueType(x[k]) CONTAINS "INTEGER" OR valueType(x[k]) CONTAINS "FLOAT"
+                         | [head(labels(x)) + "_" + k, x[k]]
+                      ]
+                    )
+                 ] AS maps
+            RETURN id(n) AS rootId,
+                   apoc.map.mergeList(maps) AS mergedNumericProperties
+            """
+
+        return f"""
+                        {start_match}
+                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+                        WHERE
+                          all(rel IN relationships(p) WHERE
+                              type(rel) in {many2one})
+                        WITH n, collect(DISTINCT m) + n AS nodes
+                        WITH n,
+                             [x IN nodes |
+                                apoc.map.fromPairs(
+                                  [k IN {props}
+                                     WHERE x[k] IS NOT NULL AND (valueType(x[k]) CONTAINS "INTEGER" OR valueType(x[k]) CONTAINS "FLOAT")
+                                     | [head(labels(x)) + "_" + k, x[k]]
+                                  ]
+                                )
+                             ] AS maps
+                        RETURN id(n) AS rootId,
+                               apoc.map.mergeList(maps) AS mergedNumericProperties
+                        """
+
+    def build_cypher_edges(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep, node_ids=None) -> str:
+        lbl = self.backtick_escape(label)
+        depth = "" if max_depth is None else str(int(max_depth))
+        props = to_keep
+        start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
+
+        suffixRegex = '.*(?:' + '|'.join(map(re.escape, suffixes)) + ')$'
+
+        if to_keep == []:
+            return f"""
+            {start_match}
+            OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+            WHERE
+              all(rel IN relationships(p) WHERE
+                   type(rel) in {many2one})
+            WITH n, apoc.coll.flatten(collect(relationships(p))) AS rawRels
+            WITH n, [r IN rawRels WHERE r IS NOT NULL | r] AS filteredRels
+            WITH n, apoc.coll.toSet(filteredRels) AS rels
+            WITH n,
+            [r IN rels |
+            apoc.map.fromPairs(
+              [k IN keys(r)
+                 WHERE valueType(r[k]) CONTAINS "INTEGER" OR valueType(r[k]) CONTAINS "FLOAT"
+                 | [type(r) + "_" + k, r[k]]
+              ]
+            )
+            ] AS maps
+            WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+            WHERE size(keys(mergedNumericProperties)) > 0   
+            RETURN id(n) AS rootId,
+            mergedNumericProperties;
+            """
+        return f"""
+                        {start_match}
+                        OPTIONAL MATCH p = (n)-[*0..{depth}]->(m)
+                        WHERE
+                          all(rel IN relationships(p) WHERE
+                               type(rel) in {many2one})
+                        WITH n, apoc.coll.flatten(collect(relationships(p))) AS rawRels
+                        WITH n, [r IN rawRels WHERE r IS NOT NULL | r] AS filteredRels
+                        WITH n, apoc.coll.toSet(filteredRels) AS rels
+                        WITH n,
+                        [r IN rels |
+                        apoc.map.fromPairs(
+                          [k IN {props}
+                             WHERE valueType(r[k]) CONTAINS "INTEGER" OR valueType(r[k]) CONTAINS "FLOAT"
+                             | [type(r) + "_" + k, r[k]]
+                          ]
+                        )
+                        ] AS maps
+                        WITH n, apoc.map.mergeList(maps) AS mergedNumericProperties
+                        WHERE size(keys(mergedNumericProperties)) > 0  
+                        RETURN id(n) AS rootId,
+                        mergedNumericProperties;
+                        """
+
+    def fetch_as_dataframe(
+        self, out, label: str, max_depth: Optional[int], many2one, checkedges=True,
+        suffixes=[], to_keep=[], node_ids=None
+    ) -> pd.DataFrame:
+        parameters = {"node_ids": node_ids} if node_ids is not None else None
+        query = self.build_cypher_nodes(label, max_depth, many2one, suffixes, to_keep, node_ids)
+        result = self.execute_query(query, parameters)
+        if checkedges:
+            query_edge = self.build_cypher_edges(label, max_depth, many2one, suffixes, to_keep, node_ids)
+            result.extend(self.execute_query(query_edge, parameters))
+        rows = []
+        for rec in result:
+            root_id = rec["rootId"]
+            props = rec["mergedNumericProperties"] or {}
+            row = {"rootId": root_id}
+            row.update(props)
+            rows.append(row)
+
+        df = pd.DataFrame(rows).sort_values("rootId").reset_index(drop=True)
+        return df
+
+    def getAvgPropByElem(self, label):
+        query = (
+            "CALL () { MATCH(n:" + label + ") WITH n, "
+            "[k IN keys(n) WHERE valueType(n[k]) CONTAINS 'INTEGER' OR valueType(n[k]) CONTAINS 'FLOAT'] AS numericProps "
+            "RETURN avg(size(numericProps)) AS avgNodeNumericProps } "
+            "CALL () { MATCH() - [r] - () WITH r, "
+            "[k IN keys(r) WHERE valueType(r[k]) CONTAINS 'INTEGER' OR valueType(r[k]) CONTAINS 'FLOAT'] AS numericProps "
+            "RETURN avg(size(numericProps)) AS avgRelNumericProps } "
+            "RETURN avgNodeNumericProps, avgRelNumericProps;"
+        )
+        return self.execute_query(query)
+
+    def create_indexes_on_numeric_properties(
+        self,
+        numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+        drop_suffixes: Optional[Iterable[str]] = None,
+        include_nodes: bool = True,
+        include_relationships: bool = True,
+        dry_run: bool = False,
+    ) -> Dict[str, List[Tuple[str, str]]]:
+        session = self._driver.session()
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:{})$".format("|".join(safe))
+
+        def _normalize_name(name: str) -> str:
+            s = name.lstrip(":")
+            if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
+                s = s[1:-1]
+            return s
+
+        def qident(name: str) -> str:
+            return "`" + name.replace("`", "``") + "`"
+
+        created = {"node": [], "relationship": []}
+
+        if include_nodes:
+            meta_nodes = """
+            CALL apoc.meta.nodeTypeProperties() 
+            YIELD nodeType, propertyName, propertyTypes
+            WITH nodeType, propertyName, propertyTypes
+            WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+              AND ($dropRe = '' OR NOT propertyName =~ $dropRe)
+            RETURN DISTINCT nodeType AS rawLabel, propertyName AS property
+            """
+            node_rows = session.run(
+                meta_nodes,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+
+            node_pairs = [(_normalize_name(r["rawLabel"]), r["property"]) for r in node_rows]
+
+            for label, prop in node_pairs:
+                cypher = f"CREATE INDEX IF NOT EXISTS FOR (n:{qident(label)}) ON (n.{qident(prop)})"
+                if dry_run:
+                    created["node"].append((label, prop))
+                else:
+                    session.run(cypher)
+                    created["node"].append((label, prop))
+
+        if include_relationships:
+            meta_rels = """
+            CALL apoc.meta.relTypeProperties()
+            YIELD relType, propertyName, propertyTypes
+            WITH relType, propertyName, propertyTypes
+            WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+              AND ($dropRe = '' OR NOT propertyName =~ $dropRe)
+            RETURN DISTINCT relType AS rawType, propertyName AS property
+            """
+            rel_rows = session.run(
+                meta_rels,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+
+            rel_pairs = [(_normalize_name(r["rawType"]), r["property"]) for r in rel_rows]
+
+            for rtype, prop in rel_pairs:
+                cypher = f"CREATE INDEX IF NOT EXISTS FOR ()-[r:{qident(rtype)}]-() ON (r.{qident(prop)})"
+                if dry_run:
+                    created["relationship"].append((rtype, prop))
+                else:
+                    session.run(cypher)
+                    created["relationship"].append((rtype, prop))
+
+        return created
+
+    def numeric_properties_with_min_nonnull_ratio(
+        self,
+        min_nonnull_ratio: float,
+        numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+        drop_suffixes: Optional[Iterable[str]] = None,
+    ) -> List[Dict]:
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:{})$".format("|".join(safe))
+
+        cypher = """
+        CALL apoc.meta.nodeTypeProperties()
+        YIELD nodeType, propertyName, propertyTypes
+        WITH
+          CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE
+            WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+              THEN substring(s1,1,size(s1)-2)
+            ELSE s1
+          END AS cleanLabel,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        MATCH (n)
+        WHERE cleanLabel IN labels(n)
+        WITH
+          'node' AS kind,
+          cleanLabel AS label,
+          NULL AS relType,
+          property,
+          count(n) AS totalCount,
+          sum(CASE WHEN n[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio >= $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        UNION ALL
+
+        CALL apoc.meta.relTypeProperties()
+        YIELD relType, propertyName, propertyTypes
+        WITH
+            CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE WHEN size(sType)>=2 AND left(sType,1)='`' AND right(sType,1)='`'
+              THEN substring(sType,1,size(sType)-2)
+            ELSE sType
+          END AS cleanType,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        MATCH ()-[r]-()
+        WHERE type(r) = cleanType
+        WITH
+          'relationship' AS kind,
+          NULL AS label,
+          cleanType AS relType,
+          property,
+          count(r) AS totalCount,
+          sum(CASE WHEN r[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio >= $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
+        """
+
+        session = self._driver.session()
+        recs = session.run(
+            cypher,
+            NUMERIC_TYPES=list(numeric_types),
+            minNonNullRatio=float(min_nonnull_ratio),
+            dropRe=drop_re,
+        )
+        return [r["property"] for r in recs]
+
+    def numeric_properties_with_min_null_ratio(
+        self,
+        min_nonnull_ratio: float,
+        numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+        drop_suffixes: Optional[Iterable[str]] = None,
+    ) -> List[Dict]:
+        drop_re = ""
+        if drop_suffixes:
+            safe = [re.escape(s) for s in drop_suffixes]
+            drop_re = r"(?:{})$".format("|".join(safe))
+
+        cypher = """
+        CALL apoc.meta.nodeTypeProperties()
+        YIELD nodeType, propertyName, propertyTypes
+        WITH
+          CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE
+            WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+              THEN substring(s1,1,size(s1)-2)
+            ELSE s1
+          END AS cleanLabel,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        MATCH (n)
+        WHERE cleanLabel IN labels(n)
+        WITH
+          'node' AS kind,
+          cleanLabel AS label,
+          NULL AS relType,
+          property,
+          count(n) AS totalCount,
+          sum(CASE WHEN n[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio < $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        UNION ALL
+
+        CALL apoc.meta.relTypeProperties()
+        YIELD relType, propertyName, propertyTypes
+        WITH
+            CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS sType,
+          propertyName AS property,
+          propertyTypes
+        WITH
+          CASE WHEN size(sType)>=2 AND left(sType,1)='`' AND right(sType,1)='`'
+              THEN substring(sType,1,size(sType)-2)
+            ELSE sType
+          END AS cleanType,
+          property,
+          propertyTypes
+        WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+          AND ($dropRe = '' OR NOT property =~ $dropRe)
+        MATCH ()-[r]-()
+        WHERE type(r) = cleanType
+        WITH
+          'relationship' AS kind,
+          NULL AS label,
+          cleanType AS relType,
+          property,
+          count(r) AS totalCount,
+          sum(CASE WHEN r[property] IS NULL THEN 0 ELSE 1 END) AS nonNullCount
+        WITH kind, label, relType, property, nonNullCount, totalCount,
+             CASE WHEN totalCount = 0 THEN 0.0 ELSE toFloat(nonNullCount)/toFloat(totalCount) END AS nonNullRatio
+        WHERE nonNullRatio < $minNonNullRatio
+        RETURN kind, label, relType, property, nonNullCount, totalCount, nonNullRatio
+
+        ORDER BY kind, nonNullRatio DESC, coalesce(label, relType), property
+        """
+
+        session = self._driver.session()
+        recs = session.run(
+            cypher,
+            NUMERIC_TYPES=list(numeric_types),
+            minNonNullRatio=float(min_nonnull_ratio),
+            dropRe=drop_re,
+        )
+        return [r["property"] for r in recs]
+
+    def drop_indexes_on_numeric_properties(
+        self,
+        numeric_types: Iterable[str] = ("Long", "Double", "Float", "Integer"),
+        drop_suffixes: Optional[Iterable[str]] = None,
+        include_nodes: bool = True,
+        include_relationships: bool = True,
+        dry_run: bool = False,
+    ) -> Dict[str, List[str]]:
+        drop_re = ""
+        if drop_suffixes:
+            drop_re = r"(?:{})$".format("|".join(re.escape(s) for s in drop_suffixes))
+
+        def qident(name: str) -> str:
+            return "`" + name.replace("`", "``") + "`"
+
+        numeric_node_props: Dict[str, Set[str]] = {}
+        numeric_rel_props: Dict[str, Set[str]] = {}
+
+        session = self._driver.session()
+        if include_nodes:
+            rows = session.run(
+                """
+                CALL apoc.meta.nodeTypeProperties()
+                YIELD nodeType, propertyName, propertyTypes
+                WITH
+                  CASE WHEN left(nodeType,1)=':' THEN substring(nodeType,1) ELSE nodeType END AS s1,
+                  propertyName AS property,
+                  propertyTypes
+                WITH
+                  CASE WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+                       THEN substring(s1,1,size(s1)-2) ELSE s1 END AS label,
+                  property, propertyTypes
+                WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+                  AND ($dropRe = '' OR NOT property =~ $dropRe)
+                RETURN label, property
+                """,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+            for r in rows:
+                numeric_node_props.setdefault(r["label"], set()).add(r["property"])
+
+        if include_relationships:
+            rows = session.run(
+                """
+                CALL apoc.meta.relTypeProperties()
+                YIELD relType, propertyName, propertyTypes
+                WITH
+                  CASE WHEN left(relType,1)=':' THEN substring(relType,1) ELSE relType END AS s1,
+                  propertyName AS property,
+                  propertyTypes
+                WITH
+                  CASE WHEN size(s1)>=2 AND left(s1,1)='`' AND right(s1,1)='`'
+                       THEN substring(s1,1,size(s1)-2) ELSE s1 END AS rtype,
+                  property, propertyTypes
+                WHERE any(t IN propertyTypes WHERE t IN $NUMERIC_TYPES)
+                  AND ($dropRe = '' OR NOT property =~ $dropRe)
+                RETURN rtype, property
+                """,
+                NUMERIC_TYPES=list(numeric_types),
+                dropRe=drop_re,
+            )
+            for r in rows:
+                numeric_rel_props.setdefault(r["rtype"], set()).add(r["property"])
+
+        if not numeric_node_props and not numeric_rel_props:
+            return {"node": [], "relationship": []}
+
+        index_rows = session.run(
+            """
+            SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, owningConstraint
+            RETURN name, type, entityType, labelsOrTypes, properties, owningConstraint
+            """
+        )
+
+        droppable_nodes: List[str] = []
+        droppable_rels: List[str] = []
+
+        ALLOWED_TYPES = {"RANGE", "BTREE"}
+
+        for r in index_rows:
+            name = r["name"]
+            idx_type = r["type"]
+            entity = r["entityType"]
+            labels_or_types = r["labelsOrTypes"] or []
+            props = r["properties"] or []
+            owning = r["owningConstraint"]
+
+            if owning is not None:
+                continue
+            if idx_type not in ALLOWED_TYPES:
+                continue
+            if not labels_or_types or not props:
+                continue
+
+            label_or_type = labels_or_types[0]
+
+            if entity == "NODE" and include_nodes:
+                numeric_set = numeric_node_props.get(label_or_type, set())
+                if numeric_set and all(p in numeric_set for p in props):
+                    droppable_nodes.append(name)
+
+            elif entity == "RELATIONSHIP" and include_relationships:
+                numeric_set = numeric_rel_props.get(label_or_type, set())
+                if numeric_set and all(p in numeric_set for p in props):
+                    droppable_rels.append(name)
+
+        dropped = {"node": [], "relationship": []}
+
+        for name in droppable_nodes:
+            if dry_run:
+                dropped["node"].append(name)
+            else:
+                session.run(f"DROP INDEX {qident(name)} IF EXISTS")
+                dropped["node"].append(name)
+
+        for name in droppable_rels:
+            if dry_run:
+                dropped["relationship"].append(name)
+            else:
+                session.run(f"DROP INDEX {qident(name)} IF EXISTS")
+                dropped["relationship"].append(name)
+
+        return dropped
+
+    def count_numeric_properties(self):
+        with self._driver.session() as session:
+            # Adaptation aux types retournés par valueType()
+            numeric_types = ["INTEGER", "FLOAT"]
+            cypher = """
+            CALL () {
+                MATCH (n)
+                UNWIND keys(n) AS k
+                WITH k, valueType(n[k]) AS t
+                WHERE any(type IN $numeric_types WHERE t CONTAINS type)
+                RETURN collect(DISTINCT k) AS node_names
+            }
+            CALL () {
+                MATCH ()-[r]->()
+                UNWIND keys(r) AS k
+                WITH k, valueType(r[k]) AS t
+                WHERE any(type IN $numeric_types WHERE t CONTAINS type)
+                RETURN collect(DISTINCT k) AS rel_names
+            }
+            WITH node_names, rel_names
+            UNWIND (node_names + rel_names) AS combined_item
+            WITH node_names, rel_names, collect(DISTINCT combined_item) AS unique_total
+            
+            RETURN node_names, rel_names, size(node_names) AS node_count, size(rel_names) AS rel_count,
+                size(unique_total) AS total   
+            """
+            rec = session.run(cypher, numeric_types=numeric_types).single()
+            node_names = sorted(rec["node_names"])
+            rel_names = sorted(rec["rel_names"])
+            node_count = rec["node_count"]
+            rel_count = rec["rel_count"]
+            total = rec["total"]
+
+        return node_count + rel_count
+
+
+
+def in_degree_by_relationship_type(driver, label: str) -> pd.DataFrame:
+    """
+    Compute, for every node with the given label, the in-degree grouped by relationship type.
+
+    Returns a pandas DataFrame with:
+      - first column: nodeId (Neo4j internal id)
+      - subsequent columns: one per relationship type, suffixed with '__count'
+        to distinguish relationship counts from aggregated relationship properties.
+
+    Parameters
+    ----------
+    driver : neo4j.Driver
+        An existing Neo4j driver.
+    label : str
+        The node label to target (e.g., "Airport").
+
+    Notes
+    -----
+    - Only incoming relationships are counted: ()-[r]->(n:Label).
+    - Nodes with no incoming relationships are included.
+    - Relationship types become column names suffixed with '__count'.
+    """
+
+    # Safely escape the label for use in Cypher.
+    label_bt = f"`{label.replace('`', '``')}`"
+
+    q_nodes = f"""
+    MATCH (n:{label_bt})
+    RETURN id(n) AS nodeId
+    """
+
+    q_counts = f"""
+    MATCH ()-[r]-(n:{label_bt})
+    RETURN id(n) AS nodeId, type(r) AS relType, count(r) AS cnt
+    """
+
+    with driver.session() as session:
+        # Retrieve all nodes with the target label.
+        node_rows = session.run(q_nodes).data()
+        nodes_df = pd.DataFrame(node_rows)
+
+        if nodes_df.empty:
+            return pd.DataFrame(columns=["nodeId"]).astype({"nodeId": "Int64"})
+
+        # Retrieve incoming relationship counts grouped by type.
+        count_rows = session.run(q_counts).data()
+        counts_df = pd.DataFrame(
+            count_rows,
+            columns=["nodeId", "relType", "cnt"],
+        )
+
+    if counts_df.empty:
+        # No incoming relationships: return nodes without relationship-count columns.
+        return nodes_df.astype({"nodeId": "Int64"})
+
+    # Pivot so each relationship type becomes its own column.
+    pivot = counts_df.pivot_table(
+        index="nodeId",
+        columns="relType",
+        values="cnt",
+        aggfunc="sum",
+        fill_value=0,
+    ).reset_index()
+
+    # Explicitly identify relationship counts in column names.
+    pivot = pivot.rename(
+        columns={
+            col: f"{col}__count"
+            for col in pivot.columns
+            if col != "nodeId"
+        }
+    )
+
+    # Ensure all nodes are included, including nodes without incoming relationships.
+    df = nodes_df.merge(pivot, on="nodeId", how="left").fillna(0)
+
+    # Keep relationship counts as integers.
+    for col in df.columns:
+        if col != "nodeId":
+            df[col] = df[col].astype(int)
+
+    # Sort columns: nodeId first, then relationship types alphabetically.
+    cols = ["nodeId", *sorted(col for col in df.columns if col != "nodeId")]
+
+    return df[cols].astype({"nodeId": "Int64"})
+
+
+@dataclasses.dataclass
+class DatabaseConfig:
+    name: str
+    home: str
+
+    labels: Set[str]
+    number_of_node: int
+    number_of_edge: int
+    avg_properties_node: float
+    avg_properties_edge: float
+
+    uri: str = "bolt://localhost:7687"
+    username: str = "neo4j"
+    password: str | None = None
+
+    def get_db_spec(self) -> DbSpec:
+        return DbSpec(
+            self.name,
+            self.home,
+            self.uri,
+            self.username,
+            self.password
+        )
+
+
+def main(
+        database_config: DatabaseConfig,
+        runs: int = 1,
+        distinct_low: float =0.000001,
+        distinct_high: float =1,
+        correlation_threshold: float =0.98,
+        null_threshold: float = 0.1,
+        unwanted_suffixes: Collection[str] = (),
+        pushdown: bool=False,
+        remove_nulls: bool = True,
+        create_index: bool = True,
+        drop_index: bool = False,
+        agg_config: Optional[str] = None,
+        node_ids: Optional[List[int]] = None,
+) -> None:
+    
+    agg_mapping = {}
+    if agg_config:
+        import csv
+        print(f"Chargement des règles d'agrégation depuis {agg_config}...")
+        with open(agg_config, mode='r', encoding='utf-8') as f:
+            # On suppose un CSV simple: attribut,fonction (ex: age,max)
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    attribut = row[0].strip()
+                    fonction = row[1].strip().lower()
+                    agg_mapping[attribut] = fonction
+
+    current_time = time.localtime()
+    
+    # -------------------------------------------------------------
+    # WINDOWS FIX: Using underscores and dashes instead of colons!
+    # -------------------------------------------------------------
+    formatted_time = time.strftime("%d-%m-%y_%H-%M-%S", current_time)
+    fileResults = 'reports/results_' + formatted_time + ('_selected_nodes' if node_ids is not None else '') + '.csv'
+    
+    column_names = [
+        'run',
+        'pushdown',
+        'database',
+        'N',
+        'E',
+        'label',
+        'indicators#',
+        'nodes#',
+        'avgLabelProp',
+        'time_Preprocessing',
+        'time_Cardinalities',
+        'time_Indicators',
+        'time_Validation',
+        'time_total',
+        'ratio_prop_dropped',
+    ]
+    dfresults = pd.DataFrame(columns=column_names)
+
+    if create_index:
+        drop_index = True
+
+    for run in range(runs):
+        print("database: ", database_config.name)
+
+        stop_current_dbms()
+        db_spec = database_config.get_db_spec()
+        print(db_spec)
+        start_dbms(db_spec)
+        
+        # -------------------------------------------------------------
+        # WAIT FOR BOLT FIX: Gives Neo4j time to boot up before logging in
+        # -------------------------------------------------------------
+        wait_for_bolt(db_spec.bolt_uri, db_spec.user, db_spec.password, db_spec.start_timeout)
+
+        with Neo4jConnector(database_config.uri, database_config.username, database_config.password) as db:
+            resprop = db.count_numeric_properties()
+            if drop_index:
+                res = db.drop_indexes_on_numeric_properties(
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=[],
+                    include_nodes=True,
+                    include_relationships=True,
+                    dry_run=False,
+                )
+            if create_index:
+                print("Indexing numerical properties")
+                start_time = time.time()
+                res = db.create_indexes_on_numeric_properties(
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,
+                    include_nodes=True,
+                    include_relationships=True,
+                    dry_run=False,
+                )
+                end_time = time.time()
+                timings_indexes = end_time - start_time
+                print("Node indexes:", res["node"])
+                print("Relationship indexes:", res["relationship"])
+            else:
+                timings_indexes = 0
+
+            print("Finding cardinalities")
+            start_time = time.time()
+            manyToOne, manyToMany = db.detect_relationship_cardinalities()
+            end_time = time.time()
+            timings_cardinalities = end_time - start_time
+
+
+            if pushdown:
+                start_time = time.time()
+                props = db.numeric_properties_with_min_nonnull_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,
+                )
+                suffixes_for_removal = []
+                to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                print("number of properties to keep:", len(to_keep))
+                ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                end_time = time.time()
+                timings_density = end_time - start_time
+            else:
+                props = db.numeric_properties_with_min_nonnull_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,
+                )
+                to_keep = [s for s in props if not any(s.endswith(sfx) for sfx in unwanted_suffixes)]
+                ratio_dropped = 100 * (resprop - len(to_keep)) / resprop
+                print("min null ratio for validation: ", 1 - null_threshold),
+                toPassForValidation = db.numeric_properties_with_min_null_ratio(
+                    min_nonnull_ratio=1 - null_threshold,
+                    numeric_types=("Long", "Double", "Float", "Integer"),
+                    drop_suffixes=unwanted_suffixes,
+                )
+                suffixes_for_removal = []
+                to_keep = []
+                timings_density = 0
+            timings_preprocessing = timings_indexes + timings_density
+
+            for label in database_config.labels:
+                label_node_ids = node_ids
+                if node_ids is not None:
+                    safe_label = db.backtick_escape(label)
+                    matching = db.execute_query(
+                        f"MATCH (n:`{safe_label}`) WHERE id(n) IN $node_ids RETURN id(n) AS nodeId",
+                        {"node_ids": node_ids},
+                    )
+                    label_node_ids = [row["nodeId"] for row in matching]
+                    if not label_node_ids:
+                        continue
+                    print(f"Label: {label} (selected nodes: {len(label_node_ids)})")
+                else:
+                    print("Label: ", label)
+
+                print("Collecting candidate indicators")
+                start_time = time.time()
+
+                dfm2m = aggregate_m2m_properties_for_label(
+                    db.get_driver(),
+                    label,
+                    agg=agg_mapping if agg_mapping else "avg",
+                    include_relationship_properties=True,
+                    only_reltypes=manyToMany,
+                    suffixes=suffixes_for_removal,
+                    to_keep=to_keep,
+                )
+                output_suffix = "_selected_nodes" if node_ids is not None else ""
+                out = "data/" + label + "_indicators" + output_suffix + ".csv"
+                if database_config.avg_properties_edge == float(0):
+                    df121 = db.fetch_as_dataframe(
+                        out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep,
+                        node_ids=label_node_ids
+                    )
+                else:
+                    df121 = db.fetch_as_dataframe(
+                        out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep,
+                        node_ids=label_node_ids
+                    )
+
+                if node_ids is not None:
+                    if "node_id" in dfm2m.columns:
+                        dfm2m = dfm2m[dfm2m["node_id"].isin(label_node_ids)].copy()
+                    if "rootId" in df121.columns:
+                        df121 = df121[df121["rootId"].isin(label_node_ids)].copy()
+
+                dftemp = outer_join_features(df121, dfm2m, id_left="rootId", id_right="node_id", out_id="out1_id")
+                dfdeg = in_degree_by_relationship_type(db.get_driver(), label)
+                
+                if node_ids is not None and "nodeId" in dfdeg.columns:
+                    dfdeg = dfdeg[dfdeg["nodeId"].isin(label_node_ids)].copy()
+                dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
+            
+                end_time = time.time()
+                indicatorsTimings = end_time - start_time
+
+                outBeforeValidation = "data/" + label + "_beforeValidation" + ("_selected_nodes" if node_ids is not None else "") + ".csv"
+                dffinal.to_csv(outBeforeValidation, index=False)
+
+                print("Validating candidate indicators")
+
+                # -------------------------------------------------------------
+                # EMPTY DATAFRAME FIX: Do not crash if a label yields zero records
+                # -------------------------------------------------------------
+                if dffinal.empty or len(dffinal.columns) == 0:
+                    print(f"No data found for {label}. Skipping...")
+                    continue
+
+                if pushdown:
+                    suffixes_unwanted = []
+                else:
+                    suffixes_unwanted = unwanted_suffixes + toPassForValidation
+
+                start_time = time.time()
+                
+                # -------------------------------------------------------------
+                # PANDAS DECIMAL CASTING FIX: Allows integers to take scaled float values
+                # -------------------------------------------------------------
+                if not pushdown:
+                    dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
+                dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
+                
+                int_cols = dffinal.select_dtypes(include=['int64', 'int32']).columns
+                dffinal[int_cols] = dffinal[int_cols].astype(float)
+
+                keep, report = process_dataframe(
+                    dffinal, null_threshold, distinct_low, distinct_high, pushdown
+                )
+
+                if not pushdown:
+                    report = pd.concat([report, reportUW, reportCorr], axis=0)
+                else:
+                    report = pd.concat([report, reportCorr], axis=0)
+
+                output_suffix = "_selected_nodes" if node_ids is not None else ""
+                processedIndicators = "data/" + label + "_indicators_processed" + output_suffix + ".csv"
+                processingReport = "reports/" + label + "_indicators_processed" + output_suffix + ".csv"
+
+                if remove_nulls:
+                    keep = utility.remove_rows_with_nulls(keep)
+                    processedIndicators = "data/" + label + "_indicators_processed_nonulls" + ("_selected_nodes" if node_ids is not None else "") + ".csv"
+
+                dist = schema_hops_from_label(
+                    db.get_driver(), label, include_relationship_types=True, directed=False
+                )
+                keep = weight_df_by_schema_hops(keep, dist) 
+                export(keep, report, processedIndicators, processingReport)
+
+                end_time = time.time()
+                validationTimings = end_time - start_time
+
+                timings_total = (
+                    indicatorsTimings + validationTimings + timings_preprocessing + timings_cardinalities
+                )
+
+                avgprop = db.getAvgPropByElem(label)[0]['avgNodeNumericProps']
+
+                dfresults.loc[len(dfresults)] = [
+                    run,
+                    pushdown,
+                    database_config.name,
+                    database_config.number_of_node,
+                    database_config.number_of_edge,
+                    label,
+                    keep.shape[1] - 1,
+                    len(keep),
+                    avgprop,
+                    timings_preprocessing,
+                    timings_cardinalities,
+                    indicatorsTimings,
+                    validationTimings,
+                    timings_total,
+                    ratio_dropped,
+                ]
+                if runs != 1:
+                    dfresults.to_csv('reports/tempres' + formatted_time + '.csv', mode='a', header=True)
+        stop_dbms(db_spec)
+
+    dfresults.to_csv(fileResults, mode='a', header=True)
+    out, latex = averageRunsCollectAndLatex.average_time_columns_by_label_to_latex_pretty(
+        csv_path=fileResults,
+        label_col="label",
+        float_precision=1,
+        output_csv="reports/averaged_time_by_label.csv",
+        output_tex="reports/averaged_time_by_label.tex",
+    )
+    print("\n===== LaTeX Preview =====\n")
+    print(latex)
+    analyzeIndicatorDevisingTimes.main(Path('reports/averaged_time_by_label.csv'), Path('reports'))
+    return dfresults
+
+def testPushdown(nbRuns) -> None:
+    fileResults = 'reports/results_test_pushdown.csv'
+    column_names = [
+        'run',
+        'pushdown',
+        'database',
+        'N',
+        'E',
+        'label',
+        'indicators#',
+        'nodes#',
+        'avgLabelProp',
+        'time_Preprocessing',
+        'time_Cardinalities',
+        'time_Indicators',
+        'time_Validation',
+        'time_total',
+        'ratio_prop_dropped',
+    ]
+    dfresults = pd.DataFrame(columns=column_names)
+    for run in range(nbRuns):
+        for pushdown in [False, True]:
+            for null_ratio in [0.5, 0.3, 0.26, 0.25, 0.1]:
+                result = main(pushdown, null_ratio, 1)
+                dfresults = pd.concat([dfresults, result])
+    dfresults.to_csv(fileResults, mode='a', header=True)
+    plotPushdown.main(fileResults)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('config')
+    parser.add_argument(
+        '--node-ids',
+        type=str,
+        default=None,
+        help='Fichier texte contenant les IDs numériques Neo4j (id(n)), un ID par ligne. Sans cette option, tous les noeuds des labels du config sont traités.'
+    )
+    parser.add_argument('-r', '--runs', default=1, type=int)
+    parser.add_argument('-a','--agg-config', type=str, default=None, help="Path csv file for aggregation configuration")
+    parser.add_argument('-dl', '--distinct-low', default=0.000001, type=float)
+    parser.add_argument('-dh', '--distinct-high', default=1, type=float)
+    parser.add_argument('-c', '--correlation-threshold', default=0.98, type=float)
+    parser.add_argument('-n', '--null-threshold', default=0.1, type=float)
+    
+    # -------------------------------------------------------------
+    # DEFAULT ARG FIX: Provide an empty list to prevent NoneType iteration errors
+    # -------------------------------------------------------------
+    parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str, default=[])
+    
+    parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
+    parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
+    parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
+
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        database_config = json.load(f, object_hook=lambda x: DatabaseConfig(**x))
+
+    selected_node_ids = None
+    if args.node_ids:
+        ids_path = Path(args.node_ids)
+        if not ids_path.is_file():
+            parser.error(f"Fichier d'IDs introuvable : {ids_path}")
+        selected_node_ids = []
+        with ids_path.open(encoding="utf-8") as ids_file:
+            for line_number, line in enumerate(ids_file, start=1):
+                value = line.strip()
+                if not value or value.startswith("#"):
+                    continue
+                try:
+                    selected_node_ids.append(int(value))
+                except ValueError:
+                    parser.error(
+                        f"ID invalide à la ligne {line_number} de {ids_path}: {value!r}. "
+                        "Ce script attend les IDs numériques retournés par id(n), pas elementId(n)."
+                    )
+        selected_node_ids = list(dict.fromkeys(selected_node_ids))
+        if not selected_node_ids:
+            parser.error(f"Aucun ID numérique trouvé dans {ids_path}")
+        print(f"{len(selected_node_ids)} ID(s) chargé(s) depuis {ids_path}")
+
+    main(
+        database_config=database_config,
+        runs=args.runs,
+        distinct_low=args.distinct_low,
+        distinct_high=args.distinct_high,
+        null_threshold=args.null_threshold,
+        correlation_threshold=args.correlation_threshold,
+        unwanted_suffixes=args.unwanted_suffixes,
+        pushdown=args.pushdown,
+        remove_nulls=not args.keep_nulls,
+        create_index=args.create_index,
+        agg_config=args.agg_config,
+        node_ids=selected_node_ids,
+    )

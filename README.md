@@ -249,6 +249,7 @@ To extract indicators from property graphs, use the `collect_indicators.py` scri
 * `--keep-nulls`: remove lines with at least one null value
 * `--create-index`: create all indices on numerical properties
 
+The script expects the instance to be turned off before running it !
 ### Example command
 
 You can run the indicator extraction using the following command:
@@ -263,6 +264,54 @@ python3 collect_indicators.py configs/airports.json \
     --unwanted-suffixes _id _zipcode \
     --pushdown \
     --create-index
+```
+
+### Example config file
+
+Here is an example of the `config` file for the airport database : 
+```json
+{
+  "name": "airport",
+  "labels": ["Airport"],
+  "home": "path/to/your/instance",
+  "number_of_node": 9819, <-- obtained with a query
+  "number_of_edge": 25385, <-- obtained with a query
+  "avg_properties_node": 3.941, <-- obtained with a query
+  "avg_properties_edge": 39.97, <-- obtained with a query
+  "username": "<username>",
+  "password": "<password>"
+}
+```
+Examples of instance path :
+* linux : "~/.config/neo4j-desktop/Application/Data/dbmss/dbms-\<dbms-id\>",
+* windows : "~/.Neo4jDesktop2/Data/dbmss/dbms-\<dbms-id\>",
+* mac : ~/Library/Application Support/neo4j-desktop/Application/Data/dbmss/dbms-\<dbms-id\>
+
+## Indicators extraction on given nodes (ids)
+It uses one more parameter as [Indicators extraction](#indicators-extraction) : 
+* `--node-ids` : path to a .txt containing the nodes' ids you want to extract indicators from.
+
+The script expects the instance to be turned off before running it !
+
+### Example command
+
+```bash
+python3 collect_indicators_by_ids.py configs/airports.json \
+    --node-ids configs/airport_node_ids.txt \
+    --runs 1 \
+    --distinct-low 0.000001 \
+    --distinct-high 1 \
+    --correlation-threshold 0.98 \
+    --null-threshold 0.1 \
+    --unwanted-suffixes _id _zipcode \
+    --pushdown \
+    --create-index
+```
+
+The IDs are obtained using the `id()` Cypher function. Here is an example to get the id of the "Charles de Gaulle" airport's id using the IATA code :
+```
+MATCH (n:Airport{iata:"CDG"})
+RETURN id(n)
 ```
 
 ## Solving the Partition/Clustering problem
