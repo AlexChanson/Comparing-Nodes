@@ -5,6 +5,8 @@ with # and blank lines are ignored. Relationship/cardinality/schema preprocessin
 is still computed by the existing pipeline; indicator rows are restricted to the
 selected IDs. This script expects to run from the same project directory as
 collect_indicators.py and its helper modules.
+Use --keep-textual-properties to retain text properties from relationships
+that are single for each selected node in a given direction, without aggregation.
 """
 
 import argparse
@@ -116,9 +118,10 @@ class Neo4jConnector:
         """
 
         result = self.execute_query(query)
-        return [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-one'], [
-            rec['relType'] for rec in result if rec['cardinality'] == 'many-to-many'
-        ]
+        return (
+            [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-one'],
+            [rec['relType'] for rec in result if rec['cardinality'] == 'many-to-many'],
+        )
 
     def build_cypher_nodes(self, label: str, max_depth: Optional[int], many2one, suffixes, to_keep, node_ids=None) -> str:
         lbl = self.backtick_escape(label)
@@ -224,6 +227,46 @@ class Neo4jConnector:
                         RETURN id(n) AS rootId,
                         mergedNumericProperties;
                         """
+
+    def build_cypher_single_relationship_text(self, label: str, node_ids=None) -> str:
+        lbl = self.backtick_escape(label)
+        start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
+        return f"""
+            {start_match}
+            MATCH (n)-[r]-(m)
+            WITH n, m, r,
+                 type(r) AS relType,
+                 CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction
+            WITH n, relType, direction, collect({{relationship: r, neighbor: m}}) AS adjacent
+            WHERE size(adjacent) = 1
+            WITH n, relType, direction,
+                 head(adjacent).relationship AS r,
+                 head(adjacent).neighbor AS m
+            WITH n, relType, direction, r, m,
+                 [k IN keys(m)
+                    WHERE m[k] IS NOT NULL AND valueType(m[k]) CONTAINS "STRING"
+                    | [apoc.text.join(labels(m), "|") + "_" + relType + "__" + direction + "_" + k, m[k]]
+                 ] AS nodePairs,
+                 [k IN keys(r)
+                    WHERE r[k] IS NOT NULL AND valueType(r[k]) CONTAINS "STRING"
+                    | [relType + "__" + direction + "_" + k, r[k]]
+                 ] AS relationshipPairs
+            WITH n, apoc.map.fromPairs(nodePairs + relationshipPairs) AS textProperties
+            RETURN id(n) AS rootId,
+                   apoc.map.mergeList(collect(textProperties)) AS mergedTextualProperties
+        """
+
+    def fetch_single_relationship_text_properties(
+        self, label: str, node_ids=None
+    ) -> pd.DataFrame:
+        parameters = {"node_ids": node_ids} if node_ids is not None else None
+        query = self.build_cypher_single_relationship_text(label, node_ids)
+        result = self.execute_query(query, parameters)
+        rows = [
+            {"rootId": rec["rootId"], **(rec["mergedTextualProperties"] or {})}
+            for rec in result
+        ]
+        return pd.DataFrame(rows)
 
     def fetch_as_dataframe(
         self, out, label: str, max_depth: Optional[int], many2one, checkedges=True,
@@ -793,6 +836,7 @@ def main(
         drop_index: bool = False,
         agg_config: Optional[str] = None,
         node_ids: Optional[List[int]] = None,
+        keep_textual_properties: bool = False,
 ) -> None:
     
     agg_mapping = {}
@@ -946,16 +990,27 @@ def main(
                 )
                 output_suffix = "_selected_nodes" if node_ids is not None else ""
                 out = "data/" + label + "_indicators" + output_suffix + ".csv"
+                textual_columns = []
                 if database_config.avg_properties_edge == float(0):
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep,
-                        node_ids=label_node_ids
+                        node_ids=label_node_ids,
                     )
                 else:
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, True, suffixes_for_removal, to_keep=to_keep,
-                        node_ids=label_node_ids
+                        node_ids=label_node_ids,
                     )
+                if keep_textual_properties:
+                    df_text = db.fetch_single_relationship_text_properties(label, node_ids=label_node_ids)
+                    textual_columns = [column for column in df_text.columns if column != "rootId"]
+                    if not df_text.empty:
+                        df121 = df121.merge(
+                            df_text,
+                            on="rootId",
+                            how="left",
+                            validate="many_to_one",
+                        )
 
                 if node_ids is not None:
                     if "node_id" in dfm2m.columns:
@@ -969,6 +1024,12 @@ def main(
                 if node_ids is not None and "nodeId" in dfdeg.columns:
                     dfdeg = dfdeg[dfdeg["nodeId"].isin(label_node_ids)].copy()
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
+
+                if keep_textual_properties:
+                    dffinal = dffinal[
+                        [column for column in dffinal.columns if column not in textual_columns]
+                        + textual_columns
+                    ]
             
                 end_time = time.time()
                 indicatorsTimings = end_time - start_time
@@ -991,20 +1052,27 @@ def main(
                     suffixes_unwanted = unwanted_suffixes + toPassForValidation
 
                 start_time = time.time()
+                validation_df = dffinal.drop(columns=textual_columns)
                 
                 # -------------------------------------------------------------
                 # PANDAS DECIMAL CASTING FIX: Allows integers to take scaled float values
                 # -------------------------------------------------------------
                 if not pushdown:
-                    dffinal, reportUW = drop_columns_by_suffix_with_report(dffinal, suffixes_unwanted)
-                dffinal, reportCorr = remove_correlated_columns(dffinal, correlation_threshold)
-                
-                int_cols = dffinal.select_dtypes(include=['int64', 'int32']).columns
-                dffinal[int_cols] = dffinal[int_cols].astype(float)
+                    validation_df, reportUW = drop_columns_by_suffix_with_report(validation_df, suffixes_unwanted)
+                validation_df, reportCorr = remove_correlated_columns(validation_df, correlation_threshold)
 
-                keep, report = process_dataframe(
-                    dffinal, null_threshold, distinct_low, distinct_high, pushdown
-                )
+                int_cols = validation_df.select_dtypes(include=['int64', 'int32']).columns
+                validation_df[int_cols] = validation_df[int_cols].astype(float)
+
+                if textual_columns and validation_df.shape[1] == 1:
+                    keep = validation_df.copy()
+                    report = pd.DataFrame(
+                        columns=["column", "action", "reason", "null_ratio", "distinct_ratio", "dtype_before"]
+                    )
+                else:
+                    keep, report = process_dataframe(
+                        validation_df, null_threshold, distinct_low, distinct_high, pushdown
+                    )
 
                 if not pushdown:
                     report = pd.concat([report, reportUW, reportCorr], axis=0)
@@ -1023,6 +1091,14 @@ def main(
                     db.get_driver(), label, include_relationship_types=True, directed=False
                 )
                 keep = weight_df_by_schema_hops(keep, dist) 
+                if textual_columns:
+                    keep = keep.merge(
+                        dffinal[["outid", *textual_columns]],
+                        on="outid",
+                        how="left",
+                        sort=False,
+                        validate="many_to_one",
+                    )
                 export(keep, report, processedIndicators, processingReport)
 
                 end_time = time.time()
@@ -1121,6 +1197,11 @@ if __name__ == "__main__":
     parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
     parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
+    parser.add_argument(
+        '--keep-textual-properties',
+        action='store_true',
+        help='keep string properties from relationships that are single per node and direction, without aggregating',
+    )
 
     args = parser.parse_args()
 
@@ -1163,4 +1244,5 @@ if __name__ == "__main__":
         create_index=args.create_index,
         agg_config=args.agg_config,
         node_ids=selected_node_ids,
+        keep_textual_properties=args.keep_textual_properties,
     )

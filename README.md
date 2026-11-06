@@ -290,6 +290,7 @@ Examples of instance path :
 ## Indicators extraction on given nodes (ids)
 It uses one more parameter as [Indicators extraction](#indicators-extraction) : 
 * `--node-ids` : path to a .txt containing the nodes' ids you want to extract indicators from.
+* `--keep-textual-properties` : keep string properties from a relationship and its neighboring node when the selected node has exactly one such relationship of that type in that direction. These properties are appended to the pre-validation and processed CSV files; text values are not aggregated.
 
 The script expects the instance to be turned off before running it !
 
@@ -305,7 +306,8 @@ python3 collect_indicators_by_ids.py configs/airports.json \
     --null-threshold 0.1 \
     --unwanted-suffixes _id _zipcode \
     --pushdown \
-    --create-index
+    --create-index \
+    --keep-textual-properties
 ```
 
 The IDs are obtained using the `id()` Cypher function. Here is an example to get the id of the "Charles de Gaulle" airport's id using the IATA code :
