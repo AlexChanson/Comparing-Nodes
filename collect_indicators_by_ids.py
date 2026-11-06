@@ -233,27 +233,34 @@ class Neo4jConnector:
         start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
         return f"""
             {start_match}
-            MATCH (n)-[r]-(m)
-            WITH n, m, r,
-                 type(r) AS relType,
-                 CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction
-            WITH n, relType, direction, collect({{relationship: r, neighbor: m}}) AS adjacent
-            WHERE size(adjacent) = 1
-            WITH n, relType, direction,
-                 head(adjacent).relationship AS r,
-                 head(adjacent).neighbor AS m
-            WITH n, relType, direction, r, m,
-                 [k IN keys(m)
-                    WHERE m[k] IS NOT NULL AND valueType(m[k]) CONTAINS "STRING"
-                    | [apoc.text.join(labels(m), "|") + "_" + relType + "__" + direction + "_" + k, m[k]]
-                 ] AS nodePairs,
-                 [k IN keys(r)
-                    WHERE r[k] IS NOT NULL AND valueType(r[k]) CONTAINS "STRING"
-                    | [relType + "__" + direction + "_" + k, r[k]]
-                 ] AS relationshipPairs
-            WITH n, apoc.map.fromPairs(nodePairs + relationshipPairs) AS textProperties
+            WITH n,
+                 apoc.map.fromPairs(
+                   [k IN keys(n)
+                      WHERE n[k] IS NOT NULL AND valueType(n[k]) CONTAINS "STRING"
+                      | [apoc.text.join(labels(n), "|") + "__" + k, n[k]]
+                   ]
+                 ) AS currentNodeText
+            CALL (n) {{
+                MATCH (n)-[r]-(m)
+                WITH n, type(r) AS relType,
+                     CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction,
+                     collect({{relationship: r, neighbor: m}}) AS adjacent
+                WHERE size(adjacent) = 1
+                WITH relType, direction,
+                     head(adjacent).relationship AS r,
+                     head(adjacent).neighbor AS m
+                WITH [k IN keys(m)
+                        WHERE m[k] IS NOT NULL AND valueType(m[k]) CONTAINS "STRING"
+                        | [apoc.text.join(labels(m), "|") + "_" + relType + "__" + direction + "_" + k, m[k]]
+                     ] +
+                     [k IN keys(r)
+                        WHERE r[k] IS NOT NULL AND valueType(r[k]) CONTAINS "STRING"
+                        | [relType + "__" + direction + "_" + k, r[k]]
+                     ] AS textPairs
+                RETURN collect(apoc.map.fromPairs(textPairs)) AS relationshipTextMaps
+            }}
             RETURN id(n) AS rootId,
-                   apoc.map.mergeList(collect(textProperties)) AS mergedTextualProperties
+                   apoc.map.mergeList([currentNodeText] + relationshipTextMaps) AS mergedTextualProperties
         """
 
     def fetch_single_relationship_text_properties(
@@ -1199,6 +1206,7 @@ if __name__ == "__main__":
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
     parser.add_argument(
         '--keep-textual-properties',
+        '--keep_textual_properties',
         action='store_true',
         help='keep string properties from relationships that are single per node and direction, without aggregating',
     )

@@ -290,7 +290,7 @@ Examples of instance path :
 ## Indicators extraction on given nodes (ids)
 It uses one more parameter as [Indicators extraction](#indicators-extraction) : 
 * `--node-ids` : path to a .txt containing the nodes' ids you want to extract indicators from.
-* `--keep-textual-properties` : keep string properties from a relationship and its neighboring node when the selected node has exactly one such relationship of that type in that direction. These properties are appended to the pre-validation and processed CSV files; text values are not aggregated.
+* `--keep-textual-properties` (or `--keep_textual_properties`) : keep string properties from each selected node, as well as string properties from a relationship and its neighboring node when the selected node has exactly one such relationship of that type in that direction. These properties are appended to the pre-validation and processed CSV files; text values are not aggregated.
 
 The script expects the instance to be turned off before running it !
 
