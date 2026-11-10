@@ -5,8 +5,10 @@ with # and blank lines are ignored. Relationship/cardinality/schema preprocessin
 is still computed by the existing pipeline; indicator rows are restricted to the
 selected IDs. This script expects to run from the same project directory as
 collect_indicators.py and its helper modules.
-Use --keep-textual-properties to retain text properties from relationships
-that are single for each selected node in a given direction, without aggregation.
+Use --keep-textual-properties to retain text properties from selected nodes,
+their directly connected nodes, and their relationships as lists of values.
+Use --keep-numeric-properties to retain numeric properties from the same
+elements as lists of values without numeric aggregation.
 """
 
 import argparse
@@ -228,7 +230,7 @@ class Neo4jConnector:
                         mergedNumericProperties;
                         """
 
-    def build_cypher_single_relationship_text(self, label: str, node_ids=None) -> str:
+    def build_cypher_connected_text_properties(self, label: str, node_ids=None) -> str:
         lbl = self.backtick_escape(label)
         start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
         return f"""
@@ -237,18 +239,13 @@ class Neo4jConnector:
                  apoc.map.fromPairs(
                    [k IN keys(n)
                       WHERE n[k] IS NOT NULL AND valueType(n[k]) CONTAINS "STRING"
-                      | [apoc.text.join(labels(n), "|") + "__" + k, n[k]]
+                      | [apoc.text.join(labels(n), "|") + "__" + k, [n[k]]]
                    ]
                  ) AS currentNodeText
             CALL (n) {{
-                MATCH (n)-[r]-(m)
-                WITH n, type(r) AS relType,
-                     CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction,
-                     collect({{relationship: r, neighbor: m}}) AS adjacent
-                WHERE size(adjacent) = 1
-                WITH relType, direction,
-                     head(adjacent).relationship AS r,
-                     head(adjacent).neighbor AS m
+                OPTIONAL MATCH (n)-[r]-(m)
+                WITH m, r, type(r) AS relType,
+                     CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction
                 WITH [k IN keys(m)
                         WHERE m[k] IS NOT NULL AND valueType(m[k]) CONTAINS "STRING"
                         | [apoc.text.join(labels(m), "|") + "_" + relType + "__" + direction + "_" + k, m[k]]
@@ -257,20 +254,85 @@ class Neo4jConnector:
                         WHERE r[k] IS NOT NULL AND valueType(r[k]) CONTAINS "STRING"
                         | [relType + "__" + direction + "_" + k, r[k]]
                      ] AS textPairs
-                RETURN collect(apoc.map.fromPairs(textPairs)) AS relationshipTextMaps
+                WITH collect(textPairs) AS pairLists
+                WITH reduce(allPairs = [], pairs IN pairLists | allPairs + pairs) AS allPairs
+                WITH allPairs, apoc.coll.toSet([pair IN allPairs | pair[0]]) AS propertyNames
+                RETURN apoc.map.fromPairs(
+                    [propertyName IN propertyNames
+                       | [propertyName, [pair IN allPairs WHERE pair[0] = propertyName | pair[1]]]
+                    ]
+                ) AS connectedText
             }}
             RETURN id(n) AS rootId,
-                   apoc.map.mergeList([currentNodeText] + relationshipTextMaps) AS mergedTextualProperties
+                   apoc.map.mergeList([currentNodeText, connectedText]) AS mergedTextualProperties
         """
 
-    def fetch_single_relationship_text_properties(
+    def fetch_connected_text_properties(
         self, label: str, node_ids=None
     ) -> pd.DataFrame:
         parameters = {"node_ids": node_ids} if node_ids is not None else None
-        query = self.build_cypher_single_relationship_text(label, node_ids)
+        query = self.build_cypher_connected_text_properties(label, node_ids)
         result = self.execute_query(query, parameters)
         rows = [
             {"rootId": rec["rootId"], **(rec["mergedTextualProperties"] or {})}
+            for rec in result
+        ]
+        return pd.DataFrame(rows)
+
+    def build_cypher_connected_numeric_properties(self, label: str, node_ids=None) -> str:
+        lbl = self.backtick_escape(label)
+        start_match = f"MATCH (n:`{lbl}`)" if node_ids is None else "MATCH (n) WHERE id(n) IN $node_ids"
+        return f"""
+            {start_match}
+            WITH n,
+                 apoc.map.fromPairs(
+                   [k IN keys(n)
+                      WHERE n[k] IS NOT NULL AND
+                            (valueType(n[k]) CONTAINS "INTEGER" OR valueType(n[k]) CONTAINS "FLOAT")
+                      | [apoc.text.join(labels(n), "|") + "__numeric_values__" + k, [n[k]]]
+                   ]
+                 ) AS currentNodeNumeric
+            CALL (n) {{
+                OPTIONAL MATCH (n)-[r]-(m)
+                WITH n, m, r, type(r) AS relType,
+                     CASE WHEN startNode(r) = n THEN "out" ELSE "in" END AS direction
+                WITH coalesce(
+                       [k IN keys(m)
+                          WHERE m[k] IS NOT NULL AND
+                                (valueType(m[k]) CONTAINS "INTEGER" OR valueType(m[k]) CONTAINS "FLOAT")
+                          | [apoc.text.join(labels(m), "|") + "_" + relType + "__" + direction + "__numeric_values__" + k, m[k]]
+                       ],
+                       []
+                     ) +
+                     coalesce(
+                       [k IN keys(r)
+                          WHERE r[k] IS NOT NULL AND
+                                (valueType(r[k]) CONTAINS "INTEGER" OR valueType(r[k]) CONTAINS "FLOAT")
+                          | [relType + "__" + direction + "__numeric_values__" + k, r[k]]
+                       ],
+                       []
+                     ) AS numericPairs
+                WITH collect(numericPairs) AS pairLists
+                WITH reduce(allPairs = [], pairs IN pairLists | allPairs + pairs) AS allPairs
+                WITH allPairs, apoc.coll.toSet([pair IN allPairs | pair[0]]) AS propertyNames
+                RETURN apoc.map.fromPairs(
+                    [propertyName IN propertyNames
+                       | [propertyName, [pair IN allPairs WHERE pair[0] = propertyName | pair[1]]]
+                    ]
+                ) AS connectedNumeric
+            }}
+            RETURN id(n) AS rootId,
+                   apoc.map.mergeList([currentNodeNumeric, connectedNumeric]) AS mergedNumericValues
+        """
+
+    def fetch_connected_numeric_properties(
+        self, label: str, node_ids=None
+    ) -> pd.DataFrame:
+        parameters = {"node_ids": node_ids} if node_ids is not None else None
+        query = self.build_cypher_connected_numeric_properties(label, node_ids)
+        result = self.execute_query(query, parameters)
+        rows = [
+            {"rootId": rec["rootId"], **(rec["mergedNumericValues"] or {})}
             for rec in result
         ]
         return pd.DataFrame(rows)
@@ -844,6 +906,7 @@ def main(
         agg_config: Optional[str] = None,
         node_ids: Optional[List[int]] = None,
         keep_textual_properties: bool = False,
+        keep_numeric_properties: bool = False,
 ) -> None:
     
     agg_mapping = {}
@@ -998,6 +1061,7 @@ def main(
                 output_suffix = "_selected_nodes" if node_ids is not None else ""
                 out = "data/" + label + "_indicators" + output_suffix + ".csv"
                 textual_columns = []
+                numeric_list_columns = []
                 if database_config.avg_properties_edge == float(0):
                     df121 = db.fetch_as_dataframe(
                         out, label, 5, manyToOne, False, suffixes_for_removal, to_keep=to_keep,
@@ -1009,11 +1073,21 @@ def main(
                         node_ids=label_node_ids,
                     )
                 if keep_textual_properties:
-                    df_text = db.fetch_single_relationship_text_properties(label, node_ids=label_node_ids)
+                    df_text = db.fetch_connected_text_properties(label, node_ids=label_node_ids)
                     textual_columns = [column for column in df_text.columns if column != "rootId"]
                     if not df_text.empty:
                         df121 = df121.merge(
                             df_text,
+                            on="rootId",
+                            how="left",
+                            validate="many_to_one",
+                        )
+                if keep_numeric_properties:
+                    df_numeric = db.fetch_connected_numeric_properties(label, node_ids=label_node_ids)
+                    numeric_list_columns = [column for column in df_numeric.columns if column != "rootId"]
+                    if not df_numeric.empty:
+                        df121 = df121.merge(
+                            df_numeric,
                             on="rootId",
                             how="left",
                             validate="many_to_one",
@@ -1032,10 +1106,11 @@ def main(
                     dfdeg = dfdeg[dfdeg["nodeId"].isin(label_node_ids)].copy()
                 dffinal = outer_join_features(dftemp, dfdeg, id_left="out1_id", id_right="nodeId", out_id="outid")
 
-                if keep_textual_properties:
+                preserved_list_columns = textual_columns + numeric_list_columns
+                if preserved_list_columns:
                     dffinal = dffinal[
-                        [column for column in dffinal.columns if column not in textual_columns]
-                        + textual_columns
+                        [column for column in dffinal.columns if column not in preserved_list_columns]
+                        + preserved_list_columns
                     ]
             
                 end_time = time.time()
@@ -1059,7 +1134,7 @@ def main(
                     suffixes_unwanted = unwanted_suffixes + toPassForValidation
 
                 start_time = time.time()
-                validation_df = dffinal.drop(columns=textual_columns)
+                validation_df = dffinal.drop(columns=preserved_list_columns)
                 
                 # -------------------------------------------------------------
                 # PANDAS DECIMAL CASTING FIX: Allows integers to take scaled float values
@@ -1071,7 +1146,7 @@ def main(
                 int_cols = validation_df.select_dtypes(include=['int64', 'int32']).columns
                 validation_df[int_cols] = validation_df[int_cols].astype(float)
 
-                if textual_columns and validation_df.shape[1] == 1:
+                if preserved_list_columns and validation_df.shape[1] == 1:
                     keep = validation_df.copy()
                     report = pd.DataFrame(
                         columns=["column", "action", "reason", "null_ratio", "distinct_ratio", "dtype_before"]
@@ -1098,9 +1173,9 @@ def main(
                     db.get_driver(), label, include_relationship_types=True, directed=False
                 )
                 keep = weight_df_by_schema_hops(keep, dist) 
-                if textual_columns:
+                if preserved_list_columns:
                     keep = keep.merge(
-                        dffinal[["outid", *textual_columns]],
+                        dffinal[["outid", *preserved_list_columns]],
                         on="outid",
                         how="left",
                         sort=False,
@@ -1202,13 +1277,23 @@ if __name__ == "__main__":
     parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str, default=[])
     
     parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
-    parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
+    parser.add_argument(
+        '--keep-nulls',
+        action='store_true',
+        help='keep rows with null values instead of dropping them',
+    )
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
     parser.add_argument(
         '--keep-textual-properties',
         '--keep_textual_properties',
         action='store_true',
-        help='keep string properties from relationships that are single per node and direction, without aggregating',
+        help='keep string properties from selected nodes and all directly connected nodes and relationships as lists',
+    )
+    parser.add_argument(
+        '--keep-numeric-properties',
+        '--keep_numeric_properties',
+        action='store_true',
+        help='keep numeric properties from selected nodes and all directly connected nodes and relationships as lists',
     )
 
     args = parser.parse_args()
@@ -1253,4 +1338,5 @@ if __name__ == "__main__":
         agg_config=args.agg_config,
         node_ids=selected_node_ids,
         keep_textual_properties=args.keep_textual_properties,
+        keep_numeric_properties=args.keep_numeric_properties,
     )

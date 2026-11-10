@@ -986,7 +986,11 @@ if __name__ == "__main__":
     parser.add_argument('-u', '--unwanted-suffixes', action='extend', nargs="+", type=str, default=[])
     
     parser.add_argument('--pushdown', action='store_true', help='if unwanted properties, acceptable density (validation) are pushed down indicator collection')
-    parser.add_argument('--keep-nulls', action='store_true', help='remove lines with at least one null value')
+    parser.add_argument(
+        '--keep-nulls',
+        action='store_true',
+        help='keep rows with null values instead of dropping them',
+    )
     parser.add_argument('--create-index', action='store_true', help='should we create all indices on numerical properties')
 
     args = parser.parse_args()

@@ -246,7 +246,7 @@ To extract indicators from property graphs, use the `collect_indicators.py` scri
 * `-n` (or `--null-threshold`): the threshold for acceptable density
 * `-u` (or `--unwanted-suffixes`): a list of suffixes for discarding properties
 * `--pushdown`: if unwanted properties and acceptable density validation are pushed down during indicator collection
-* `--keep-nulls`: remove lines with at least one null value
+* `--keep-nulls`: keep rows with null values instead of dropping them
 * `--create-index`: create all indices on numerical properties
 
 The script expects the instance to be turned off before running it !
@@ -290,7 +290,8 @@ Examples of instance path :
 ## Indicators extraction on given nodes (ids)
 It uses one more parameter as [Indicators extraction](#indicators-extraction) : 
 * `--node-ids` : path to a .txt containing the nodes' ids you want to extract indicators from.
-* `--keep-textual-properties` (or `--keep_textual_properties`) : keep string properties from each selected node, as well as string properties from a relationship and its neighboring node when the selected node has exactly one such relationship of that type in that direction. These properties are appended to the pre-validation and processed CSV files; text values are not aggregated.
+* `--keep-textual-properties` (or `--keep_textual_properties`) : keep string properties from each selected node and all directly connected nodes and relationships. Each textual column is a list of values; a one-to-one connection produces a single-item list. These columns are appended to the pre-validation and processed CSV files and excluded from numeric validation.
+* `--keep-numeric-properties` (or `--keep_numeric_properties`) : keep numeric properties from each selected node and all directly connected nodes and relationships as lists of values, without aggregating them. These raw-value columns are appended to the pre-validation and processed CSV files and excluded from numeric validation; existing aggregated indicators remain unchanged.
 
 The script expects the instance to be turned off before running it !
 
